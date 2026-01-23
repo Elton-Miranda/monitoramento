@@ -13,26 +13,192 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS VISUAL ---
+# --- CSS VISUAL (LAYOUT, BLOCOS E UPLOAD LIMPO) ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
+
+    /* ============================================================
+       1. BOTÕES DE CONTRATO (RADIO) - BLOCOS LARGOS
+       ============================================================ */
     
-    /* Estilo dos Cards */
+    [data-testid="stRadio"] { background: transparent !important; }
+    [data-testid="stRadio"] > label { display: none !important; }
+
+    div[role="radiogroup"] {
+        display: flex;
+        flex-direction: row;
+        width: 100%;
+        gap: 20px;
+    }
+
+    div[role="radiogroup"] label {
+        background-color: white !important;
+        border: 3px solid #660099 !important;
+        border-radius: 12px !important;
+        padding: 18px 10px !important;
+        flex: 1 !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        text-align: center !important;
+        cursor: pointer !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+        transition: 0.3s !important;
+    }
+
+    div[role="radiogroup"] label > div:first-child { display: none !important; }
+
+    div[role="radiogroup"] label p {
+        font-size: 22px !important;
+        font-weight: 900 !important;
+        margin: 0 !important;
+        color: #660099 !important;
+        white-space: nowrap !important;
+        text-transform: uppercase !important;
+    }
+
+    div[role="radiogroup"] label:has(input:checked) {
+        background-color: #660099 !important;
+        box-shadow: 0 6px 12px rgba(102, 0, 153, 0.4) !important;
+    }
+    div[role="radiogroup"] label:has(input:checked) p {
+        color: #ffffff !important;
+    }
+
+    div[role="radiogroup"] label:hover {
+        transform: translateY(-3px);
+        background-color: #f3e5f5 !important;
+    }
+    div[role="radiogroup"] label:has(input:checked):hover {
+        background-color: #550080 !important;
+    }
+
+
+    /* ============================================================
+       2. UPLOAD - TEXTOS MAIORES E EVIDENTES
+       ============================================================ */
+
+    [data-testid="stFileUploaderDropzoneInstructions"] { display: none !important; }
+    
+    [data-testid="stFileUploaderDropzone"]::before {
+        content: "📂 Arraste e solte o arquivo aqui";
+        display: block; text-align: center;
+        font-weight: 800; font-size: 1.3rem; 
+        color: #333; margin-top: 15px;
+    }
+
+    [data-testid="stFileUploader"] button[kind="secondary"] {
+        float: right !important;
+        color: transparent !important;
+        border: 2px solid #ccc !important;
+        background: white !important;
+        width: 180px !important; 
+        height: 45px !important;
+        margin-top: 10px !important;
+        position: relative !important;
+    }
+    
+    [data-testid="stFileUploader"] button[kind="secondary"]::after {
+        content: "Inserir arquivo";
+        color: #333 !important;
+        position: absolute;
+        top: 50%; left: 50%; transform: translate(-50%, -50%);
+        font-weight: 800 !important; 
+        font-size: 16px !important;
+    }
+    
+    [data-testid="stFileUploader"] button[kind="secondary"]:hover {
+        border-color: #660099 !important;
+    }
+    [data-testid="stFileUploader"] button[kind="secondary"]:hover::after {
+        color: #660099 !important;
+    }
+
+    /* BOTÃO X (DELETAR) */
+    [data-testid="stFileUploadedItem"] > div:first-child { display: none !important; }
+    
+    [data-testid="stFileUploadedItem"] {
+        background-color: transparent !important;
+        padding: 5px !important;
+        justify-content: flex-end !important;
+    }
+
+    button[data-testid="stFileUploaderDeleteBtn"] {
+        background-color: #ffebee !important;
+        border: 2px solid #d32f2f !important;
+        width: 45px !important; height: 45px !important;
+        border-radius: 50% !important;
+        transition: 0.2s !important;
+    }
+    
+    button[data-testid="stFileUploaderDeleteBtn"] svg {
+        width: 24px !important; height: 24px !important;
+        fill: #d32f2f !important;
+        stroke-width: 2px !important;
+    }
+
+    button[data-testid="stFileUploaderDeleteBtn"]:hover {
+        background-color: #d32f2f !important;
+    }
+    button[data-testid="stFileUploaderDeleteBtn"]:hover svg {
+        fill: white !important;
+    }
+
+    /* ============================================================
+       3. GERAL E CARDS (MÉTRICAS)
+       ============================================================ */
+    
     div[data-testid="stMetric"] {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        padding: 10px;
-        border-radius: 8px;
-        text-align: center;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        height: 130px; 
+        background-color: white; 
+        border: 2px solid #e0e0e0; 
+        padding: 15px; 
+        border-radius: 12px;
+        text-align: center; 
+        box-shadow: 0 2px 5px rgba(0,0,0,0.08); 
+        height: 140px;
         display: flex; flex-direction: column; justify-content: center; align-items: center;
     }
-    div[data-testid="stMetricLabel"] { width: 100%; justify-content: center; font-size: 14px; color: #666; }
-    div[data-testid="stMetricValue"] { font-size: 26px; font-weight: bold; color: #000; }
     
-    div.stDownloadButton > button { width: 100%; border: none; padding: 0.6rem; border-radius: 8px; font-weight: bold; }
+    div[data-testid="stMetricLabel"] { 
+        width: 100%; justify-content: center; 
+        font-size: 18px !important; 
+        font-weight: 700 !important; 
+        color: #444; 
+    }
+    
+    div[data-testid="stMetricValue"] { 
+        font-size: 36px !important; 
+        font-weight: 900 !important; 
+        color: #000; 
+    }
+    
+    div[data-testid="stMetricDelta"] {
+        font-size: 16px !important;
+        font-weight: 800 !important;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+        font-weight: 800 !important;
+        color: #222 !important;
+    }
+
+    div.stDownloadButton > button { 
+        width: 100%; border: none; padding: 1rem; 
+        border-radius: 10px; 
+        font-weight: 800 !important; 
+        font-size: 16px !important;
+        transition: 0.3s;
+    }
+    div.stDownloadButton > button:hover {
+        color: #660099 !important;
+        border: 2px solid #660099 !important;
+        background-color: #f3e5f5 !important;
+    }
+    
+    .contrato-label {
+        font-size: 20px; font-weight: 800; color: #333; margin-bottom: 8px; margin-left: 2px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -48,242 +214,318 @@ def carregar_dados(uploaded_file):
         st.error(f"Erro ao ler: {e}")
         return None
 
-def processar_regras(df):
+def processar_regras(df_full, contrato_sel):
     agora = datetime.now(timezone.utc) - timedelta(hours=3)
     agora = agora.replace(tzinfo=None)
 
-    # 1. Identificar Coluna
-    cols_map = {c.lower().strip(): c for c in df.columns}
-    col_abertura = cols_map.get('abertura') or cols_map.get('data abertura')
+    cols_map = {c.lower().strip(): c for c in df_full.columns}
 
+    col_contrato = cols_map.get('contrato') or cols_map.get('escritório')
+    if col_contrato:
+        df = df_full[df_full[col_contrato].astype(str).str.strip() == contrato_sel].copy()
+    else:
+        return pd.DataFrame()
+
+    col_abertura = cols_map.get('abertura') or cols_map.get('data abertura')
     if not col_abertura: return pd.DataFrame()
 
-    # 2. Conversão de Data
     try:
         df['Abertura_dt'] = pd.to_datetime(df[col_abertura], format='%d/%m/%Y, %H:%M:%S', errors='coerce')
     except:
         df['Abertura_dt'] = pd.to_datetime(df[col_abertura], dayfirst=True, errors='coerce')
-    
     df = df.dropna(subset=['Abertura_dt'])
 
-    # 3. Cálculo de Tempo
     df['diff_segundos'] = (agora - df['Abertura_dt']).dt.total_seconds()
     df['horas_float'] = df['diff_segundos'] / 3600
-    
+
     def formatar_hhmmss(s):
         if s < 0: return "00:00:00"
         m, s = divmod(int(s), 60); h, m = divmod(m, 60)
         return f"{h:02d}:{m:02d}:{s:02d}"
-    
     df['Horas Corridas'] = df['diff_segundos'].apply(formatar_hhmmss)
 
-    # 4. SLA
     def classificar_sla(h):
         if h > 24: return "Crítico"
         if h > 8: return "Atenção"
         return "No Prazo"
     df['Status SLA'] = df['horas_float'].apply(classificar_sla)
 
-    # 5. Outros
     col_tec = cols_map.get('técnicos') or cols_map.get('tecnicos')
     df['Técnicos'] = pd.to_numeric(df[col_tec], errors='coerce').fillna(0) if col_tec else 0
 
-    col_at = cols_map.get('at') or cols_map.get('area')
-    lista_lit = ['TG', 'PG', 'LZ', 'MK', 'MG', 'PN', 'AA', 'BV', 'FM', 'RP', 'AC', 'FP', 'BA', 'TQ', 'BO', 'BU', 'BC', 'PJ', 'PB', 'MR']
-    
-    def definir_area(val):
-        if pd.isna(val): return "Vale"
-        sigla = str(val).split('-')[0].strip().upper()
-        return "Litoral" if sigla in lista_lit else "Vale"
+    col_afe = cols_map.get('afetação') or cols_map.get('afetacao')
+    df['Afetação'] = pd.to_numeric(df[col_afe], errors='coerce') if col_afe else pd.NA
 
-    if col_at: df['Area'] = df[col_at].apply(definir_area)
-    else: df['Area'] = "N/A"
+    if contrato_sel == 'ABILITY_SJ':
+        col_at = cols_map.get('at') or cols_map.get('area')
+        lista_litoral = ['TG', 'PG', 'LZ', 'MK', 'MG', 'PN', 'AA', 'BV', 'FM', 'RP', 'AC', 'FP', 'BA', 'TQ', 'BO', 'BU', 'BC', 'PJ', 'PB', 'MR']
+        def definir_area(val):
+            if pd.isna(val): return "Vale"
+            sigla = str(val).split('-')[0].strip().upper()
+            return "Litoral" if sigla in lista_litoral else "Vale"
+        
+        if col_at: df['Area'] = df[col_at].apply(definir_area)
+        else: df['Area'] = "N/A"
+    else:
+        df['Area'] = "Geral"
 
     return df.sort_values(by='horas_float', ascending=False)
 
-def cor_fundo_sla_tabela(row):
-    # Função para colorir a tabela interativa na tela
-    h = row['horas_float']
-    c = '#fff1f0' if h > 24 else ('#fffbe6' if h > 8 else '#f6ffed')
-    # Cor do texto também muda levemente para combinar
-    text_c = '#cf1322' if h > 24 else ('#d48806' if h > 8 else '#389e0d')
-    return [f'background-color: {c}; color: {text_c}; font-weight: bold'] * len(row)
+def estilo_tabela(row):
+    h = row.get('horas_float', None)
+    sla_color = '#d32f2f' if h and h>24 else ('#d48806' if h and h>8 else ('#389e0d' if h else '#000'))
+    val_af = None
+    for k in ['Afetação', 'afetação', 'Afetacao']:
+        if k in row.index:
+            try: val_af = float(row[k])
+            except: pass; break
+    return '#1e88e5' if val_af and val_af >= 100 else sla_color
+
+def row_style_apply(row):
+    c = estilo_tabela(row)
+    return [f'color: {c}; font-weight: 800'] * len(row)
 
 # ==========================================
-# GERAÇÃO IMAGEM (JPEG) - ESTILO MODERNO
+# GERAÇÃO IMAGEM (JPEG) — VISUAL REFINADO
 # ==========================================
-def gerar_cards_mpl(kpis):
-    fig, ax = plt.subplots(figsize=(8, 6))
-    fig.patch.set_facecolor('white')
+def gerar_cards_mpl(kpis, contrato):
+    # Paleta de cores
+    C_BG = "#f4f6f9"
+    C_CARD = "#ffffff"
+    C_BORDER = "#d1d5db"
+    C_SHADOW = "#e5e7eb"
+    C_TEXT = "#1f2937"
+    C_LABEL = "#6b7280"
+    C_PURPLE = "#660099"
+    C_RED = "#d32f2f"
+    C_YELLOW = "#d48806"
+    C_GREEN = "#389e0d"
+    
+    # Altura dinâmica (se tiver região ou não)
+    tem_regiao = 'lit' in kpis and 'vale' in kpis
+    h_total = 7.5 if tem_regiao else 6.0
+    
+    fig, ax = plt.subplots(figsize=(13, h_total), dpi=180)
+    fig.patch.set_facecolor(C_BG)
     ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
-    
-    hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%H:%M')
-    
-    ax.text(5, 95, "Monitoramento Operacional", fontsize=18, weight='bold', color='#333')
-    ax.text(95, 95, hora, fontsize=14, color='#888', ha='right')
-    
-    def box(x, y, w, h, lbl, val, clr='black'):
-        s = patches.FancyBboxPatch((x+.5,y-.5), w, h, boxstyle="round,pad=0.5", linewidth=0, color='#eee')
-        b = patches.FancyBboxPatch((x,y), w, h, boxstyle="round,pad=0.5", linewidth=1, edgecolor='#ddd', facecolor='white')
-        ax.add_patch(s); ax.add_patch(b)
-        ax.text(x+w/2, y+h*.65, lbl, ha='center', fontsize=10, color='#666')
-        ax.text(x+w/2, y+h*.25, str(val), ha='center', fontsize=20, weight='bold', color=clr)
 
-    ax.text(5, 85, "Geral", fontsize=12, color='#333', weight='bold')
-    box(5, 70, 40, 10, "Total Aberto", kpis['total'])
-    box(50, 70, 40, 10, "Sem Técnico", kpis['sem_tec'], '#d32f2f' if kpis['sem_tec']>0 else '#388e3c')
-    
-    ax.text(5, 60, "SLA", fontsize=12, color='#333', weight='bold')
-    box(5, 45, 25, 10, "Crítico", kpis['sla_red'], '#d32f2f')
-    box(35, 45, 25, 10, "Atenção", kpis['sla_yellow'], '#d48806')
-    box(65, 45, 25, 10, "No Prazo", kpis['sla_green'], '#389e0d')
+    # --- FUNÇÃO PARA DESENHAR CARD ESTILIZADO ---
+    def draw_card(x, y, w, h, title, value, val_color=C_TEXT, alert=False):
+        # Sombra
+        shadow = patches.FancyBboxPatch((x+0.5, y-0.8), w, h, boxstyle="round,pad=0,rounding_size=2", 
+                                        fc=C_SHADOW, ec="none", zorder=1)
+        ax.add_patch(shadow)
+        
+        # Card Fundo
+        card = patches.FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0,rounding_size=2", 
+                                      fc=C_CARD, ec=C_BORDER, lw=1, zorder=2)
+        ax.add_patch(card)
+        
+        # Título
+        ax.text(x + w/2, y + h*0.75, title, ha='center', va='center', 
+                fontsize=12, color=C_LABEL, weight='bold', zorder=3)
+        
+        # Valor
+        ax.text(x + w/2, y + h*0.4, str(value), ha='center', va='center', 
+                fontsize=28, color=val_color, weight='extra bold', zorder=3)
+        
+        # Alerta (Badge Vermelho)
+        if alert:
+            # Pill Vermelha
+            pill_w, pill_h = 18, 5
+            pill_x = x + w/2 - pill_w/2
+            pill_y = y + 5
+            pill = patches.FancyBboxPatch((pill_x, pill_y), pill_w, pill_h, 
+                                          boxstyle="round,pad=0,rounding_size=2", 
+                                          fc="#fee2e2", ec="#ef4444", lw=1, zorder=3)
+            ax.add_patch(pill)
+            ax.text(pill_x + pill_w/2, pill_y + pill_h/2, "⚠️ ALERTA", 
+                    ha='center', va='center', fontsize=9, color="#b91c1c", weight='bold', zorder=4)
 
-    ax.text(5, 35, "Região", fontsize=12, color='#333', weight='bold')
-    box(5, 20, 40, 10, "Litoral", kpis['lit'])
-    box(50, 20, 40, 10, "Vale", kpis['vale'])
+    # --- CABEÇALHO ---
+    # Título Principal
+    ax.text(2, 94, "Monitoramento Operacional", fontsize=22, weight='black', color='#111')
     
-    b = io.BytesIO()
-    plt.savefig(b, format='jpg', dpi=150, bbox_inches='tight', facecolor='white')
-    plt.close(fig)
-    return b.getvalue()
+    # Badge do Contrato (Topo Direito)
+    bbox_props = dict(boxstyle="round,pad=0.6", fc=C_PURPLE, ec="none", lw=0)
+    ax.text(98, 94, f"{contrato}", ha="right", va="center", fontsize=16, 
+            weight='bold', color='white', bbox=bbox_props)
+    
+    hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%d/%m • %H:%M")
+    ax.text(2, 88, f"Atualizado: {hora}", fontsize=11, color="#666")
 
-def gerar_lista_mpl(df):
-    # Seleção de Colunas para o Print
-    cols = {'Ocorrência':'ID', 'AT':'AT', 'Status SLA':'Status', 'Horas Corridas':'Tempo'}
-    use = [c for c in cols.keys() if c in df.columns]
+    # --- LAYOUT GRID ---
+    # Linha 1: Geral (Y ~ 65)
+    y1 = 65
+    h_card = 16
     
-    df_view = df[use].head(40).copy()
-    df_view.rename(columns=cols, inplace=True)
+    ax.text(2, y1 + h_card + 3, "Geral", fontsize=14, weight='bold', color='#444')
+    draw_card(2, y1, 46, h_card, "Total Aberto", kpis['total'])
+    draw_card(52, y1, 46, h_card, "Sem Técnico", kpis['sem_tec'], C_TEXT, alert=(kpis['sem_tec']>0))
+
+    # Linha 2: SLA (Y ~ 35)
+    y2 = 38
+    w_sla = 30.6
+    gap = 2
     
-    # Altura dinâmica
-    h_fig = len(df_view) * 0.35 + 2
-    fig, ax = plt.subplots(figsize=(10, h_fig))
+    ax.text(2, y2 + h_card + 3, "SLA", fontsize=14, weight='bold', color='#444')
+    draw_card(2, y2, w_sla, h_card, "Crítico (>24h)", kpis['sla_red'], C_RED)
+    draw_card(2 + w_sla + gap, y2, w_sla, h_card, "Atenção (8-24h)", kpis['sla_yellow'], C_YELLOW)
+    draw_card(2 + 2*(w_sla + gap), y2, w_sla, h_card, "No Prazo", kpis['sla_green'], C_GREEN)
+
+    # Linha 3: Região (Opcional)
+    if tem_regiao:
+        y3 = 10
+        ax.text(2, y3 + h_card + 3, "Região", fontsize=14, weight='bold', color='#444')
+        draw_card(2, y3, 46, h_card, "Litoral", kpis['lit'])
+        draw_card(52, y3, 46, h_card, "Vale", kpis['vale'])
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="jpg", dpi=180, bbox_inches="tight", facecolor=C_BG)
+    plt.close(fig); return buf.getvalue()
+
+def gerar_lista_mpl_from_view(df_view, col_order, contrato):
+    export_cols = [c for c in col_order if c != 'horas_float']
+    df_p = df_view[export_cols].copy()
+    rename = {'Ocorrência':'ID', 'Horas Corridas':'Tempo'}
+    df_p.rename(columns=rename, inplace=True)
+
+    fig, ax = plt.subplots(figsize=(13, max(3.2, 2.4 + len(df_p)*0.45)), dpi=170)
     ax.axis('off'); fig.patch.set_facecolor('white')
     
-    hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%H:%M')
-    plt.title(f"Lista Detalhada - {hora}", pad=20, fontsize=14, weight='bold', color='#333')
-
-    # Tabela Base
-    # colColours define o fundo do cabeçalho (cinza claro)
-    tbl = ax.table(
-        cellText=df_view.values, 
-        colLabels=df_view.columns, 
-        cellLoc='center', 
-        loc='center', 
-        colColours=['#f8f9fa']*len(df_view.columns) 
-    )
+    hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%d/%m/%Y • %H:%M')
     
-    tbl.auto_set_font_size(False)
-    tbl.set_fontsize(10)
-    tbl.scale(1.2, 1.8)
+    # Cabeçalho da Lista
+    plt.title(f"Lista Detalhada: {contrato}", loc='left', pad=30, fontsize=20, weight='bold', color='#333')
+    plt.text(1, 1.01, f"Gerado em: {hora}", transform=ax.transAxes, ha='right', fontsize=12, color='#666')
 
-    # ESTILIZAÇÃO MODERNA (Letras Coloridas)
-    if 'Status' in df_view.columns:
-        idx_status = list(df_view.columns).index('Status')
-        
-        # Percorre todas as células da tabela
-        # Células começam em (1,0) pois (0,X) é cabeçalho
-        for row_idx in range(len(df_view)):
-            val = df_view.iloc[row_idx]['Status']
-            
-            # Pega a célula da coluna Status
-            cell = tbl[(row_idx + 1, idx_status)]
-            
-            # Aplica cor na FONTE, não no fundo
-            if val == 'Crítico':
-                cell.get_text().set_color('#d32f2f') # Vermelho Escuro
-                cell.get_text().set_weight('bold')
-            elif val == 'Atenção':
-                cell.get_text().set_color('#d48806') # Laranja Escuro
-                cell.get_text().set_weight('bold')
-            elif val == 'No Prazo':
-                cell.get_text().set_color('#389e0d') # Verde Escuro
-                cell.get_text().set_weight('bold')
+    tbl = ax.table(cellText=df_p.values.tolist(), colLabels=df_p.columns, cellLoc='center', loc='center')
+    tbl.auto_set_font_size(False); tbl.set_fontsize(14); tbl.scale(1.15, 1.8)
 
-            # Opcional: Deixar as linhas com fundo alternado suave (Zebra)
-            # if row_idx % 2 == 0:
-            #    for c_idx in range(len(df_view.columns)):
-            #        tbl[(row_idx+1, c_idx)].set_facecolor('#fafafa')
+    for j in range(len(df_p.columns)):
+        tbl[(0, j)].set_facecolor('#f0f2f6')
+        tbl[(0, j)].get_text().set_weight('bold')
+        tbl[(0, j)].get_text().set_fontsize(15)
 
-    b = io.BytesIO()
-    plt.savefig(b, format='jpg', dpi=150, bbox_inches='tight', facecolor='white')
-    plt.close(fig)
-    return b.getvalue()
+    for i in range(len(df_p)):
+        c = estilo_tabela(df_view.iloc[i])
+        for j in range(len(df_p.columns)):
+            tbl[(i+1, j)].get_text().set_color(c)
+            tbl[(i+1, j)].get_text().set_weight('bold')
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='jpg', dpi=170, bbox_inches='tight', facecolor='white')
+    plt.close(fig); return buf.getvalue()
+
+def row_style_apply(row):
+    c = estilo_tabela(row)
+    return [f'color: {c}; font-weight: 800'] * len(row)
 
 # --- Interface ---
 st.title("Monitoramento Operacional")
 hora_br = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%d/%m %H:%M:%S')
-st.markdown(f"<div style='margin-bottom: 20px; color: grey;'>Atualizado: {hora_br}</div>", unsafe_allow_html=True)
+st.markdown(f"<div style='margin-bottom: 20px; color: grey; font-weight: bold;'>Atualizado: {hora_br}</div>", unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader("Carregar ficheiro", type=["xlsx", "csv"], label_visibility="collapsed")
+uploaded_file = st.file_uploader("Inserir arquivo", type=["xlsx", "csv"], key="uploader", label_visibility="collapsed")
 
 if uploaded_file:
     df_raw = carregar_dados(uploaded_file)
     if df_raw is not None and not df_raw.empty:
-        df = processar_regras(df_raw)
+        col_contrato_raw = [c for c in df_raw.columns if c.lower().strip() in ['contrato', 'escritório']]
         
-        if df.empty:
-             st.warning("Verifique a coluna 'Abertura'.")
-        else:
-            kpis = {
-                'total': len(df), 'sem_tec': len(df[df['Técnicos']==0]),
-                'sla_red': len(df[df['horas_float']>24]), 
-                'sla_yellow': len(df[(df['horas_float']>8)&(df['horas_float']<=24)]),
-                'sla_green': len(df[df['horas_float']<=8]), 
-                'lit': len(df[df['Area']=="Litoral"]), 'vale': len(df[df['Area']=="Vale"])
-            }
-
-            st.write("### 📤 Exportar Relatórios")
-            c1, c2 = st.columns(2)
-            nome = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%H%M')
-            try:
-                c1.download_button("📸 Baixar Cards", gerar_cards_mpl(kpis), f"Cards_{nome}.jpg", "image/jpeg", use_container_width=True)
-                c2.download_button("📄 Baixar Lista", gerar_lista_mpl(df), f"Lista_{nome}.jpg", "image/jpeg", use_container_width=True)
-            except: pass
-
-            st.divider()
-
-            st.subheader("Geral")
-            c1, c2 = st.columns(2, gap="medium")
-            c1.metric("Total Aberto", kpis['total'])
-            c2.metric("Sem Técnico", kpis['sem_tec'], delta="Alert" if kpis['sem_tec']>0 else "Ok", delta_color="inverse")
-
-            st.subheader("SLA")
-            s1, s2, s3 = st.columns(3, gap="medium")
-            s1.metric("Crítico (>24h)", kpis['sla_red'])
-            s2.metric("Atenção (8-24h)", kpis['sla_yellow'])
-            s3.metric("No Prazo (<8h)", kpis['sla_green'])
-
-            st.subheader("Região")
-            a1, a2 = st.columns(2, gap="medium")
-            a1.metric("Litoral", kpis['lit'])
-            a2.metric("Vale", kpis['vale'])
-
-            st.divider()
-
-            col_f1, col_f2 = st.columns(2)
-            f_area = col_f1.multiselect("Filtrar Área", df['Area'].unique())
-            f_sla = col_f2.multiselect("Filtrar SLA", ["Crítico", "Atenção", "No Prazo"])
-
-            df_show = df.copy()
-            if f_area: df_show = df_show[df_show['Area'].isin(f_area)]
-            if f_sla: df_show = df_show[df_show['Status SLA'].isin(f_sla)]
-
-            # AQUI: Colunas para Tabela Interativa
-            cols_final = ['Ocorrência', 'Area', 'AT', 'Status SLA', 'Horas Corridas', 'Técnicos', 'horas_float']
-            cols_exist = [c for c in cols_final if c in df_show.columns]
+        if col_contrato_raw:
+            todos_contratos = df_raw[col_contrato_raw[0]].astype(str).str.strip().unique()
+            contratos_principais = ["ABILITY_SJ", "TEL_JI"]
+            opcoes_validas = [c for c in contratos_principais if c in todos_contratos]
             
-            # Aplica a cor também na tabela da tela
-            st.dataframe(
-                df_show[cols_exist].style.apply(cor_fundo_sla_tabela, axis=1),
-                width="stretch", 
-                height=600,
-                column_config={
-                    "Ocorrência": st.column_config.TextColumn("ID", width="small"),
-                    "AT": st.column_config.TextColumn("AT", width="medium"),
-                    "Horas Corridas": st.column_config.TextColumn(width="medium"), 
-                    "horas_float": None,
-                }
-            )
+            if not opcoes_validas:
+                st.warning("Contratos ABILITY_SJ ou TEL_JI não encontrados.")
+            else:
+                st.markdown("<p class='contrato-label'>Selecione o Contrato:</p>", unsafe_allow_html=True)
+                
+                contrato_selecionado = st.radio(
+                    "Selecione:",
+                    opcoes_validas,
+                    horizontal=True,
+                    label_visibility="collapsed"
+                )
+                
+                df = processar_regras(df_raw, contrato_selecionado)
+                
+                if df.empty:
+                    st.warning("Nenhum dado válido encontrado.")
+                else:
+                    kpis = {
+                        'total': len(df), 'sem_tec': len(df[df['Técnicos']==0]),
+                        'sla_red': len(df[df['horas_float']>24]), 
+                        'sla_yellow': len(df[(df['horas_float']>8)&(df['horas_float']<=24)]),
+                        'sla_green': len(df[df['horas_float']<=8]),
+                        'lit': len(df[df['Area']=="Litoral"]), 'vale': len(df[df['Area']=="Vale"])
+                    }
+
+                    st.write("### 📤 Exportar Relatórios")
+                    c1, c2 = st.columns(2)
+                    nome = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%H%M')
+                    try:
+                        c1.download_button("📸 Baixar Cards", gerar_cards_mpl(kpis, contrato_selecionado), f"Cards_{nome}.jpg", "image/jpeg", use_container_width=True)
+                    except: pass
+
+                    st.divider()
+
+                    st.subheader("Geral")
+                    m1, m2 = st.columns(2, gap="medium")
+                    m1.metric("Total Aberto", kpis['total'])
+                    
+                    delta_txt = "⚠️ Alerta" if kpis['sem_tec'] > 0 else "Ok"
+                    m2.metric("Sem Técnico", kpis['sem_tec'], delta=delta_txt, delta_color="inverse")
+
+                    st.subheader("SLA")
+                    s1, s2, s3 = st.columns(3, gap="medium")
+                    s1.metric("Crítico (>24h)", kpis['sla_red'])
+                    s2.metric("Atenção (8-24h)", kpis['sla_yellow'])
+                    s3.metric("No Prazo (<8h)", kpis['sla_green'])
+
+                    if contrato_selecionado == 'ABILITY_SJ':
+                        st.subheader("Região")
+                        r1, r2 = st.columns(2, gap="medium")
+                        r1.metric("Litoral", kpis['lit'])
+                        r2.metric("Vale", kpis['vale'])
+
+                    st.divider()
+
+                    col_f1, col_f2 = st.columns(2)
+                    if contrato_selecionado == 'ABILITY_SJ':
+                        f_area = col_f1.multiselect("Filtrar Área", df['Area'].unique(), placeholder="Selecione...")
+                    else:
+                        col_f1.info("Filtro de região indisponível.")
+                        f_area = []
+                    
+                    f_sla = col_f2.multiselect("Filtrar SLA", ["Crítico", "Atenção", "No Prazo"], placeholder="Selecione...")
+
+                    df_show = df.copy()
+                    if f_area: df_show = df_show[df_show['Area'].isin(f_area)]
+                    if f_sla: df_show = df_show[df_show['Status SLA'].isin(f_sla)]
+                    if 'AT' in df_show.columns: df_show['AT'] = df_show['AT'].astype(str).str[:2]
+
+                    cols_final = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'Técnicos', 'horas_float']
+                    cols_exist = [c for c in cols_final if c in df_show.columns]
+
+                    styler = df_show[cols_exist].style.apply(row_style_apply, axis=1) \
+                        .set_properties(**{'font-size': '16px', 'font-weight': '600'}) \
+                        .set_table_styles([
+                            {'selector': 'th', 'props': [('font-size', '18px'), ('font-weight', 'bold'), ('background-color', '#f0f2f6')]}
+                        ])
+                    
+                    st.dataframe(styler, width=None, height=600, use_container_width=True,
+                                 column_config={"Ocorrência": st.column_config.TextColumn("ID", width="small"), 
+                                                "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"),
+                                                "horas_float": None})
+
+                    try:
+                        cols_exp = [c for c in cols_exist if c != 'horas_float']
+                        c2.download_button("📄 Baixar Lista", gerar_lista_mpl_from_view(df_show, cols_exp, contrato_selecionado), f"Lista_{nome}.jpg", "image/jpeg", use_container_width=True)
+                    except: pass
+        else:
+            st.error("Coluna 'Contrato' não encontrada.")
     else: st.info("Ficheiro vazio.")
-else: st.info("Aguardando ficheiro...")
+else: st.info("Carregue a base geral para iniciar.")
