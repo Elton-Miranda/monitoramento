@@ -264,8 +264,8 @@ def gerar_cards_mpl(kpis, contrato):
     w_sla = 30
     gap = 3
     
-    draw_card_mobile(2, y2, w_sla, h_card, "Crítico", kpis['sla_red'], C_RED)
-    draw_card_mobile(2 + w_sla + gap, y2, w_sla, h_card, "Atenção", kpis['sla_yellow'], C_YELLOW)
+    draw_card_mobile(2, y2, w_sla, h_card, "Crítico >24", kpis['sla_red'], C_RED)
+    draw_card_mobile(2 + w_sla + gap, y2, w_sla, h_card, "Atenção >8", kpis['sla_yellow'], C_YELLOW)
     draw_card_mobile(2 + 2*(w_sla + gap), y2, w_sla, h_card, "Ok", kpis['sla_green'], C_GREEN)
 
     # Linha 3: Região
