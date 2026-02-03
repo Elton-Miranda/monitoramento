@@ -13,23 +13,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS VISUAL (LAYOUT, BLOCOS E UPLOAD LIMPO) ---
+# --- CSS VISUAL (FONTS AUMENTADAS E LAYOUT ROBUSTO) ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
 
     /* ============================================================
-       1. BOTÕES DE CONTRATO (RADIO) - BLOCOS LARGOS
+       1. BOTÕES DE CONTRATO (RADIO)
        ============================================================ */
-    
     [data-testid="stRadio"] { background: transparent !important; }
     [data-testid="stRadio"] > label { display: none !important; }
 
     div[role="radiogroup"] {
-        display: flex;
-        flex-direction: row;
-        width: 100%;
-        gap: 20px;
+        display: flex; flex-direction: row; width: 100%; gap: 20px;
     }
 
     div[role="radiogroup"] label {
@@ -38,23 +34,17 @@ st.markdown("""
         border-radius: 12px !important;
         padding: 18px 10px !important;
         flex: 1 !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        text-align: center !important;
-        cursor: pointer !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
-        transition: 0.3s !important;
+        display: flex !important; justify-content: center !important; align-items: center !important;
+        text-align: center !important; cursor: pointer !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; transition: 0.3s !important;
     }
 
     div[role="radiogroup"] label > div:first-child { display: none !important; }
 
     div[role="radiogroup"] label p {
-        font-size: 22px !important;
-        font-weight: 900 !important;
-        margin: 0 !important;
-        color: #660099 !important;
-        white-space: nowrap !important;
+        font-size: 24px !important; /* AUMENTADO */
+        font-weight: 900 !important; margin: 0 !important;
+        color: #660099 !important; white-space: nowrap !important;
         text-transform: uppercase !important;
     }
 
@@ -62,147 +52,72 @@ st.markdown("""
         background-color: #660099 !important;
         box-shadow: 0 6px 12px rgba(102, 0, 153, 0.4) !important;
     }
-    div[role="radiogroup"] label:has(input:checked) p {
-        color: #ffffff !important;
-    }
+    div[role="radiogroup"] label:has(input:checked) p { color: #ffffff !important; }
 
-    div[role="radiogroup"] label:hover {
-        transform: translateY(-3px);
-        background-color: #f3e5f5 !important;
-    }
-    div[role="radiogroup"] label:has(input:checked):hover {
-        background-color: #550080 !important;
-    }
-
+    div[role="radiogroup"] label:hover { transform: translateY(-3px); background-color: #f3e5f5 !important; }
 
     /* ============================================================
-       2. UPLOAD - TEXTOS MAIORES E EVIDENTES
+       2. UPLOAD
        ============================================================ */
-
     [data-testid="stFileUploaderDropzoneInstructions"] { display: none !important; }
     
     [data-testid="stFileUploaderDropzone"]::before {
         content: "📂 Arraste e solte o arquivo aqui";
         display: block; text-align: center;
-        font-weight: 800; font-size: 1.3rem; 
-        color: #333; margin-top: 15px;
+        font-weight: 800; font-size: 1.4rem; color: #333; margin-top: 15px;
     }
 
     [data-testid="stFileUploader"] button[kind="secondary"] {
-        float: right !important;
-        color: transparent !important;
-        border: 2px solid #ccc !important;
-        background: white !important;
-        width: 180px !important; 
-        height: 45px !important;
-        margin-top: 10px !important;
-        position: relative !important;
+        float: right !important; color: transparent !important;
+        border: 2px solid #ccc !important; background: white !important;
+        width: 180px !important; height: 45px !important;
+        margin-top: 10px !important; position: relative !important;
     }
     
     [data-testid="stFileUploader"] button[kind="secondary"]::after {
-        content: "Inserir arquivo";
-        color: #333 !important;
-        position: absolute;
-        top: 50%; left: 50%; transform: translate(-50%, -50%);
-        font-weight: 800 !important; 
-        font-size: 16px !important;
+        content: "Inserir arquivo"; color: #333 !important;
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        font-weight: 800 !important; font-size: 16px !important;
     }
     
-    [data-testid="stFileUploader"] button[kind="secondary"]:hover {
-        border-color: #660099 !important;
-    }
-    [data-testid="stFileUploader"] button[kind="secondary"]:hover::after {
-        color: #660099 !important;
-    }
-
-    /* BOTÃO X (DELETAR) */
-    [data-testid="stFileUploadedItem"] > div:first-child { display: none !important; }
-    
-    [data-testid="stFileUploadedItem"] {
-        background-color: transparent !important;
-        padding: 5px !important;
-        justify-content: flex-end !important;
-    }
-
-    button[data-testid="stFileUploaderDeleteBtn"] {
-        background-color: #ffebee !important;
-        border: 2px solid #d32f2f !important;
-        width: 45px !important; height: 45px !important;
-        border-radius: 50% !important;
-        transition: 0.2s !important;
-    }
-    
-    button[data-testid="stFileUploaderDeleteBtn"] svg {
-        width: 24px !important; height: 24px !important;
-        fill: #d32f2f !important;
-        stroke-width: 2px !important;
-    }
-
-    button[data-testid="stFileUploaderDeleteBtn"]:hover {
-        background-color: #d32f2f !important;
-    }
-    button[data-testid="stFileUploaderDeleteBtn"]:hover svg {
-        fill: white !important;
-    }
-
     /* ============================================================
-       3. GERAL E CARDS (MÉTRICAS)
+       3. METRICAS E TABELA (FONTS MAIORES)
        ============================================================ */
-    
     div[data-testid="stMetric"] {
-        background-color: white; 
-        border: 2px solid #e0e0e0; 
-        padding: 15px; 
-        border-radius: 12px;
-        text-align: center; 
-        box-shadow: 0 2px 5px rgba(0,0,0,0.08); 
-        height: 140px;
-        display: flex; flex-direction: column; justify-content: center; align-items: center;
+        background-color: white; border: 2px solid #e0e0e0; 
+        padding: 10px; border-radius: 12px;
+        text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.08); 
+        height: 150px; display: flex; flex-direction: column; justify-content: center; align-items: center;
     }
     
     div[data-testid="stMetricLabel"] { 
-        width: 100%; justify-content: center; 
-        font-size: 18px !important; 
-        font-weight: 700 !important; 
-        color: #444; 
+        font-size: 20px !important; font-weight: 700 !important; color: #555; 
     }
-    
     div[data-testid="stMetricValue"] { 
-        font-size: 36px !important; 
-        font-weight: 900 !important; 
-        color: #000; 
+        font-size: 42px !important; font-weight: 900 !important; color: #000; 
     }
-    
     div[data-testid="stMetricDelta"] {
-        font-size: 16px !important;
-        font-weight: 800 !important;
+        font-size: 18px !important; font-weight: 800 !important;
     }
 
-    h1, h2, h3, h4, h5, h6 {
-        font-weight: 800 !important;
-        color: #222 !important;
-    }
-
+    /* Botão de Download Grande */
     div.stDownloadButton > button { 
-        width: 100%; border: none; padding: 1rem; 
-        border-radius: 10px; 
-        font-weight: 800 !important; 
-        font-size: 16px !important;
+        width: 100%; border: none; padding: 1.2rem; 
+        border-radius: 10px; font-weight: 900 !important; 
+        font-size: 18px !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         transition: 0.3s;
     }
     div.stDownloadButton > button:hover {
-        color: #660099 !important;
-        border: 2px solid #660099 !important;
-        background-color: #f3e5f5 !important;
+        transform: scale(1.02);
     }
     
     .contrato-label {
-        font-size: 20px; font-weight: 800; color: #333; margin-bottom: 8px; margin-left: 2px;
+        font-size: 22px; font-weight: 800; color: #333; margin-bottom: 8px; margin-left: 2px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Funções ---
+# --- Funções de Leitura e Processamento (Mantidas iguais) ---
 @st.cache_data(ttl=60)
 def carregar_dados(uploaded_file):
     try:
@@ -281,107 +196,89 @@ def estilo_tabela(row):
             except: pass; break
     return '#1e88e5' if val_af and val_af >= 100 else sla_color
 
-def row_style_apply(row):
-    c = estilo_tabela(row)
-    return [f'color: {c}; font-weight: 800'] * len(row)
-
 # ==========================================
-# GERAÇÃO IMAGEM (JPEG) — VISUAL REFINADO
+# 4. GERAÇÃO IMAGEM OTIMIZADA PARA MOBILE
+#    (Fontes gigantes e layout limpo)
 # ==========================================
 def gerar_cards_mpl(kpis, contrato):
-    # Paleta de cores
-    C_BG = "#f4f6f9"
-    C_CARD = "#ffffff"
-    C_BORDER = "#d1d5db"
-    C_SHADOW = "#e5e7eb"
-    C_TEXT = "#1f2937"
-    C_LABEL = "#6b7280"
-    C_PURPLE = "#660099"
+    # Cores
+    C_BG = "#ffffff"
+    C_SHADOW = "#eeeeee"
+    C_BORDER = "#dddddd"
+    C_TEXT = "#222222"
+    C_LABEL = "#555555"
     C_RED = "#d32f2f"
-    C_YELLOW = "#d48806"
-    C_GREEN = "#389e0d"
+    C_YELLOW = "#f57c00" # Mais contraste que amarelo puro
+    C_GREEN = "#2e7d32"
     
-    # Altura dinâmica (se tiver região ou não)
+    # Layout Ajustado (Mais alto para caber fontes grandes)
     tem_regiao = 'lit' in kpis and 'vale' in kpis
-    h_total = 7.5 if tem_regiao else 6.0
+    h_total = 14 if tem_regiao else 11 # Altura quase o dobro do anterior
     
-    fig, ax = plt.subplots(figsize=(13, h_total), dpi=180)
+    # DPI Alto para nitidez no celular
+    fig, ax = plt.subplots(figsize=(12, h_total), dpi=200) 
     fig.patch.set_facecolor(C_BG)
     ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
 
-    # --- FUNÇÃO PARA DESENHAR CARD ESTILIZADO ---
-    def draw_card(x, y, w, h, title, value, val_color=C_TEXT, alert=False):
-        # Sombra
-        shadow = patches.FancyBboxPatch((x+0.5, y-0.8), w, h, boxstyle="round,pad=0,rounding_size=2", 
-                                        fc=C_SHADOW, ec="none", zorder=1)
-        ax.add_patch(shadow)
-        
-        # Card Fundo
-        card = patches.FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0,rounding_size=2", 
-                                      fc=C_CARD, ec=C_BORDER, lw=1, zorder=2)
+    # --- FUNÇÃO CARD GRANDE ---
+    def draw_card_mobile(x, y, w, h, title, value, val_color=C_TEXT, alert=False):
+        # Card Background
+        card = patches.FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0,rounding_size=3", 
+                                      fc="white", ec=C_BORDER, lw=2, zorder=2)
         ax.add_patch(card)
         
-        # Título
-        ax.text(x + w/2, y + h*0.75, title, ha='center', va='center', 
-                fontsize=12, color=C_LABEL, weight='bold', zorder=3)
+        # Sombra leve
+        shadow = patches.FancyBboxPatch((x+0.8, y-0.8), w, h, boxstyle="round,pad=0,rounding_size=3", 
+                                        fc="#e0e0e0", ec="none", zorder=1)
+        ax.add_patch(shadow)
+
+        # Título (Fonte 18 -> muito maior)
+        ax.text(x + w/2, y + h*0.82, title.upper(), ha='center', va='center', 
+                fontsize=18, color=C_LABEL, weight='bold', zorder=3)
         
-        # Valor
+        # Valor (Fonte 55 -> GIGANTE)
         ax.text(x + w/2, y + h*0.4, str(value), ha='center', va='center', 
-                fontsize=28, color=val_color, weight='extra bold', zorder=3)
+                fontsize=55, color=val_color, weight='black', zorder=3)
         
-        # Alerta (Badge Vermelho)
+        # Alerta visual
         if alert:
-            # Pill Vermelha
-            pill_w, pill_h = 18, 5
-            pill_x = x + w/2 - pill_w/2
-            pill_y = y + 5
-            pill = patches.FancyBboxPatch((pill_x, pill_y), pill_w, pill_h, 
-                                          boxstyle="round,pad=0,rounding_size=2", 
-                                          fc="#fee2e2", ec="#ef4444", lw=1, zorder=3)
-            ax.add_patch(pill)
-            ax.text(pill_x + pill_w/2, pill_y + pill_h/2, "⚠️ ALERTA", 
-                    ha='center', va='center', fontsize=9, color="#b91c1c", weight='bold', zorder=4)
+            ax.add_patch(patches.Circle((x + w - 4, y + h - 4), 2.5, color=C_RED, zorder=4))
+            ax.text(x + w - 4, y + h - 4, "!", color="white", fontsize=20, weight='bold', ha='center', va='center', zorder=5)
 
     # --- CABEÇALHO ---
-    # Título Principal
-    ax.text(2, 94, "Monitoramento Operacional", fontsize=22, weight='black', color='#111')
+    ax.text(50, 96, "MONITORAMENTO", ha='center', fontsize=32, weight='black', color='#333')
     
-    # Badge do Contrato (Topo Direito)
-    bbox_props = dict(boxstyle="round,pad=0.6", fc=C_PURPLE, ec="none", lw=0)
-    ax.text(98, 94, f"{contrato}", ha="right", va="center", fontsize=16, 
-            weight='bold', color='white', bbox=bbox_props)
-    
-    hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%d/%m • %H:%M")
-    ax.text(2, 88, f"Atualizado: {hora}", fontsize=11, color="#666")
+    hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%H:%M")
+    ax.text(50, 92, f"{contrato} • {hora}", ha='center', fontsize=22, weight='bold', color='#660099')
 
-    # --- LAYOUT GRID ---
-    # Linha 1: Geral (Y ~ 65)
-    y1 = 65
-    h_card = 16
+    # --- GRID ---
+    # Linha 1: Geral
+    y1 = 68
+    h_card = 18 # Cards mais altos
     
-    ax.text(2, y1 + h_card + 3, "Geral", fontsize=14, weight='bold', color='#444')
-    draw_card(2, y1, 46, h_card, "Total Aberto", kpis['total'])
-    draw_card(52, y1, 46, h_card, "Sem Técnico", kpis['sem_tec'], C_TEXT, alert=(kpis['sem_tec']>0))
+    draw_card_mobile(2, y1, 46, h_card, "Total", kpis['total'])
+    draw_card_mobile(52, y1, 46, h_card, "S/ Técnico", kpis['sem_tec'], C_TEXT, alert=(kpis['sem_tec']>0))
 
-    # Linha 2: SLA (Y ~ 35)
-    y2 = 38
-    w_sla = 30.6
-    gap = 2
+    # Linha 2: SLA
+    y2 = 42
+    w_sla = 30
+    gap = 3
     
-    ax.text(2, y2 + h_card + 3, "SLA", fontsize=14, weight='bold', color='#444')
-    draw_card(2, y2, w_sla, h_card, "Crítico (>24h)", kpis['sla_red'], C_RED)
-    draw_card(2 + w_sla + gap, y2, w_sla, h_card, "Atenção (8-24h)", kpis['sla_yellow'], C_YELLOW)
-    draw_card(2 + 2*(w_sla + gap), y2, w_sla, h_card, "No Prazo", kpis['sla_green'], C_GREEN)
+    draw_card_mobile(2, y2, w_sla, h_card, "Crítico", kpis['sla_red'], C_RED)
+    draw_card_mobile(2 + w_sla + gap, y2, w_sla, h_card, "Atenção", kpis['sla_yellow'], C_YELLOW)
+    draw_card_mobile(2 + 2*(w_sla + gap), y2, w_sla, h_card, "Ok", kpis['sla_green'], C_GREEN)
 
-    # Linha 3: Região (Opcional)
+    # Linha 3: Região
     if tem_regiao:
-        y3 = 10
-        ax.text(2, y3 + h_card + 3, "Região", fontsize=14, weight='bold', color='#444')
-        draw_card(2, y3, 46, h_card, "Litoral", kpis['lit'])
-        draw_card(52, y3, 46, h_card, "Vale", kpis['vale'])
+        y3 = 16
+        draw_card_mobile(2, y3, 46, h_card, "Litoral", kpis['lit'])
+        draw_card_mobile(52, y3, 46, h_card, "Vale", kpis['vale'])
+
+    # Rodapé
+    ax.text(50, 2, "Gerado via Painel de Controle", ha='center', fontsize=14, color="#999")
 
     buf = io.BytesIO()
-    plt.savefig(buf, format="jpg", dpi=180, bbox_inches="tight", facecolor=C_BG)
+    plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG)
     plt.close(fig); return buf.getvalue()
 
 def gerar_lista_mpl_from_view(df_view, col_order, contrato):
@@ -390,36 +287,48 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
     rename = {'Ocorrência':'ID', 'Horas Corridas':'Tempo'}
     df_p.rename(columns=rename, inplace=True)
 
-    fig, ax = plt.subplots(figsize=(13, max(3.2, 2.4 + len(df_p)*0.45)), dpi=170)
+    # Aumentar altura da figura por linha para caber fonte grande
+    fig_height = max(4, 3 + len(df_p)*0.8) 
+    
+    fig, ax = plt.subplots(figsize=(14, fig_height), dpi=180) # DPI 180 para não pixelizar
     ax.axis('off'); fig.patch.set_facecolor('white')
     
-    hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%d/%m/%Y • %H:%M')
+    hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%d/%m • %H:%M')
     
-    # Cabeçalho da Lista
-    plt.title(f"Lista Detalhada: {contrato}", loc='left', pad=30, fontsize=20, weight='bold', color='#333')
-    plt.text(1, 1.01, f"Gerado em: {hora}", transform=ax.transAxes, ha='right', fontsize=12, color='#666')
+    # Cabeçalho Grande
+    plt.title(f"LISTA DE PENDÊNCIAS: {contrato}\n{hora}", loc='center', pad=40, fontsize=28, weight='black', color='#333')
 
+    # Tabela
     tbl = ax.table(cellText=df_p.values.tolist(), colLabels=df_p.columns, cellLoc='center', loc='center')
-    tbl.auto_set_font_size(False); tbl.set_fontsize(14); tbl.scale(1.15, 1.8)
+    
+    # Escala para células ficarem "gordinhas" e legíveis
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(20) # Fonte base 20 (muito maior que o padrão 10/12)
+    tbl.scale(1.2, 3.5) # Aumenta altura das linhas drasticamente
 
     for j in range(len(df_p.columns)):
-        tbl[(0, j)].set_facecolor('#f0f2f6')
-        tbl[(0, j)].get_text().set_weight('bold')
-        tbl[(0, j)].get_text().set_fontsize(15)
+        cell = tbl[(0, j)]
+        cell.set_facecolor('#660099') # Cabeçalho Roxo
+        cell.set_text_props(color='white', weight='bold')
+        cell.set_height(0.15) # Altura fixa cabeçalho
 
     for i in range(len(df_p)):
         c = estilo_tabela(df_view.iloc[i])
         for j in range(len(df_p.columns)):
-            tbl[(i+1, j)].get_text().set_color(c)
-            tbl[(i+1, j)].get_text().set_weight('bold')
+            cell = tbl[(i+1, j)]
+            cell.set_text_props(color=c, weight='bold')
+            # Bordas mais visíveis
+            cell.set_edgecolor("#dddddd")
+            cell.set_linewidth(1.5)
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='jpg', dpi=170, bbox_inches='tight', facecolor='white')
+    plt.savefig(buf, format='jpg', dpi=180, bbox_inches='tight', facecolor='white')
     plt.close(fig); return buf.getvalue()
 
 def row_style_apply(row):
     c = estilo_tabela(row)
-    return [f'color: {c}; font-weight: 800'] * len(row)
+    # Aumentar fonte na visualização do dataframe do Streamlit também
+    return [f'color: {c}; font-weight: 800; font-size: 18px'] * len(row) 
 
 # --- Interface ---
 st.title("Monitoramento Operacional")
@@ -463,19 +372,22 @@ if uploaded_file:
                         'lit': len(df[df['Area']=="Litoral"]), 'vale': len(df[df['Area']=="Vale"])
                     }
 
-                    st.write("### 📤 Exportar Relatórios")
+                    # --- ÁREA DE DOWNLOAD EVIDENTE ---
+                    st.success("✅ **Dados Processados! Use os botões abaixo para enviar no WhatsApp.**")
                     c1, c2 = st.columns(2)
                     nome = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%H%M')
                     try:
-                        c1.download_button("📸 Baixar Cards", gerar_cards_mpl(kpis, contrato_selecionado), f"Cards_{nome}.jpg", "image/jpeg", use_container_width=True)
-                    except: pass
+                        # GERAÇÃO DAS IMAGENS OTIMIZADAS
+                        img_cards = gerar_cards_mpl(kpis, contrato_selecionado)
+                        c1.download_button("📸 Baixar Resumo (Cards)", img_cards, f"Resumo_{nome}.jpg", "image/jpeg", use_container_width=True)
+                    except Exception as e: st.error(e)
 
                     st.divider()
 
-                    st.subheader("Geral")
+                    # VISUALIZAÇÃO EM TELA
+                    st.subheader("Visão Geral")
                     m1, m2 = st.columns(2, gap="medium")
                     m1.metric("Total Aberto", kpis['total'])
-                    
                     delta_txt = "⚠️ Alerta" if kpis['sem_tec'] > 0 else "Ok"
                     m2.metric("Sem Técnico", kpis['sem_tec'], delta=delta_txt, delta_color="inverse")
 
@@ -510,20 +422,24 @@ if uploaded_file:
                     cols_final = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'Técnicos', 'horas_float']
                     cols_exist = [c for c in cols_final if c in df_show.columns]
 
+                    # Tabela com estilo de fonte maior
                     styler = df_show[cols_exist].style.apply(row_style_apply, axis=1) \
-                        .set_properties(**{'font-size': '16px', 'font-weight': '600'}) \
+                        .set_properties(**{'font-size': '20px', 'height': '40px'}) \
                         .set_table_styles([
-                            {'selector': 'th', 'props': [('font-size', '18px'), ('font-weight', 'bold'), ('background-color', '#f0f2f6')]}
+                            {'selector': 'th', 'props': [('font-size', '20px'), ('font-weight', 'bold'), ('background-color', '#f0f2f6'), ('padding', '10px')]},
+                            {'selector': 'td', 'props': [('padding', '10px')]}
                         ])
                     
-                    st.dataframe(styler, width=None, height=600, use_container_width=True,
-                                 column_config={"Ocorrência": st.column_config.TextColumn("ID", width="small"), 
+                    st.dataframe(styler, height=600, use_container_width=True,
+                                 column_config={"Ocorrência": st.column_config.TextColumn("ID", width="medium"), 
                                                 "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"),
                                                 "horas_float": None})
 
                     try:
                         cols_exp = [c for c in cols_exist if c != 'horas_float']
-                        c2.download_button("📄 Baixar Lista", gerar_lista_mpl_from_view(df_show, cols_exp, contrato_selecionado), f"Lista_{nome}.jpg", "image/jpeg", use_container_width=True)
+                        # GERAÇÃO DA LISTA OTIMIZADA
+                        img_lista = gerar_lista_mpl_from_view(df_show, cols_exp, contrato_selecionado)
+                        c2.download_button("📄 Baixar Lista Detalhada", img_lista, f"Lista_{nome}.jpg", "image/jpeg", use_container_width=True)
                     except: pass
         else:
             st.error("Coluna 'Contrato' não encontrada.")
