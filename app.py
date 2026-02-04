@@ -13,13 +13,13 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS VISUAL (RESTAURADO AO ORIGINAL LEGÍVEL) ---
+# --- CSS VISUAL (BOTÕES EM LINHA ÚNICA - CORRIGIDO) ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
 
     /* ============================================================
-       1. BOTÕES DE CONTRATO (RADIO) - ESTILO ORIGINAL (GRANDES)
+       1. BOTÕES DE CONTRATO (RADIO) - LINHA ÚNICA COM SCROLL
        ============================================================ */
     
     [data-testid="stRadio"] { background: transparent !important; }
@@ -28,16 +28,20 @@ st.markdown("""
     div[role="radiogroup"] {
         display: flex;
         flex-direction: row;
+        flex-wrap: nowrap !important; /* FORÇA LINHA ÚNICA */
+        overflow-x: auto; /* ROLAGEM LATERAL */
         width: 100%;
-        gap: 20px;
+        gap: 15px;
+        padding-bottom: 10px; /* Espaço para o scroll */
     }
 
     div[role="radiogroup"] label {
         background-color: white !important;
         border: 3px solid #660099 !important; /* Borda grossa original */
         border-radius: 12px !important;
-        padding: 18px 10px !important; /* Padding original */
-        flex: 1 !important;
+        padding: 15px 10px !important;
+        flex: 0 0 auto !important; /* Tamanho fixo, não estica nem encolhe */
+        min-width: 140px !important; /* Largura mínima para ler o texto */
         display: flex !important;
         justify-content: center !important;
         align-items: center !important;
@@ -51,7 +55,7 @@ st.markdown("""
     div[role="radiogroup"] label > div:first-child { display: none !important; }
 
     div[role="radiogroup"] label p {
-        font-size: 22px !important; /* Fonte grande original */
+        font-size: 18px !important; /* Fonte ajustada */
         font-weight: 900 !important;
         margin: 0 !important;
         color: #660099 !important;
@@ -62,16 +66,19 @@ st.markdown("""
     div[role="radiogroup"] label:has(input:checked) {
         background-color: #660099 !important;
         box-shadow: 0 6px 12px rgba(102, 0, 153, 0.4) !important;
+        transform: translateY(-2px);
     }
     div[role="radiogroup"] label:has(input:checked) p {
         color: #ffffff !important;
     }
 
     div[role="radiogroup"] label:hover {
-        transform: translateY(-3px);
         background-color: #f3e5f5 !important;
     }
 
+    /* Scrollbar discreta para os botões */
+    div[role="radiogroup"]::-webkit-scrollbar { height: 6px; }
+    div[role="radiogroup"]::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
 
     /* ============================================================
        2. UPLOAD - LEGÍVEL E TRADUZIDO
@@ -123,12 +130,12 @@ st.markdown("""
     }
 
     /* ============================================================
-       3. METRICAS (CARDS) - ESTILO ORIGINAL
+       3. METRICAS (CARDS)
        ============================================================ */
     
     div[data-testid="stMetric"] {
         background-color: white; 
-        border: 2px solid #e0e0e0; /* Borda visível */
+        border: 2px solid #e0e0e0; 
         padding: 15px; 
         border-radius: 12px;
         text-align: center; 
@@ -155,7 +162,6 @@ st.markdown("""
         font-weight: 800 !important;
     }
 
-    /* Botões de Download Grandes */
     div.stDownloadButton > button { 
         width: 100%; border: none; padding: 1rem; 
         border-radius: 10px; 
@@ -197,7 +203,7 @@ def processar_regras(df_full, contrato_sel):
 
     col_contrato = cols_map.get('contrato') or cols_map.get('escritório')
     if col_contrato:
-        df = df_full[df_full[col_contrato].astype(str).str.strip() == contrato_sel].copy()
+        df = df_full[df_full[col_contrato].astype(str).str.strip().str.upper() == contrato_sel].copy()
     else:
         return pd.DataFrame()
 
@@ -231,6 +237,7 @@ def processar_regras(df_full, contrato_sel):
     col_afe = cols_map.get('afetação') or cols_map.get('afetacao')
     df['Afetação'] = pd.to_numeric(df[col_afe], errors='coerce') if col_afe else pd.NA
 
+    # Lógica de Região
     if contrato_sel == 'ABILITY_SJ':
         col_at = cols_map.get('at') or cols_map.get('area')
         lista_litoral = ['TG', 'PG', 'LZ', 'MK', 'MG', 'PN', 'AA', 'BV', 'FM', 'RP', 'AC', 'FP', 'BA', 'TQ', 'BO', 'BU', 'BC', 'PJ', 'PB', 'MR']
@@ -260,12 +267,13 @@ def row_style_apply(row):
     c = estilo_tabela(row)
     return [f'color: {c}; font-weight: 800'] * len(row)
 
-# --- Geradores de Imagem (Mantido Otimizado) ---
+# --- Geradores de Imagem (Cards) ---
 def gerar_cards_mpl(kpis, contrato):
     C_BG, C_SHADOW, C_BORDER = "#ffffff", "#eeeeee", "#dddddd"
     C_TEXT, C_LABEL, C_RED, C_YELLOW, C_GREEN = "#222222", "#555555", "#d32f2f", "#f57c00", "#2e7d32"
     
-    tem_regiao = 'lit' in kpis and 'vale' in kpis
+    # SÓ MOSTRA REGIÃO SE FOR ABILITY_SJ
+    tem_regiao = (contrato == 'ABILITY_SJ')
     h_total = 14 if tem_regiao else 11
     
     fig, ax = plt.subplots(figsize=(12, h_total), dpi=200) 
@@ -298,8 +306,8 @@ def gerar_cards_mpl(kpis, contrato):
 
     if tem_regiao:
         y3 = 16
-        draw_card_mobile(2, y3, 46, h_card, "Litoral", kpis['lit'])
-        draw_card_mobile(52, y3, 46, h_card, "Vale", kpis['vale'])
+        draw_card_mobile(2, y3, 46, h_card, "Litoral", kpis.get('lit', 0))
+        draw_card_mobile(52, y3, 46, h_card, "Vale", kpis.get('vale', 0))
 
     ax.text(50, 2, "Gerado via Painel de Controle", ha='center', fontsize=14, color="#999")
     buf = io.BytesIO()
@@ -368,7 +376,7 @@ def gerar_texto_gv(row, contrato):
 
 {id_occ} - FTTx
 ORIGEM: {origem}
-*AT: {at}
+AT: {at}
 CIDADE: {cidade} 
 QUANT. PRIMÁRIAS AFETADAS: {primarias}
 CABO: {cabo}
@@ -381,7 +389,7 @@ RECLAMADOS-ANATEL: {rec_anatel}
 CLIENTE VIP:  {vip}
 CLIENTE B2B:  {b2b}
 COND. ALTO VALOR: {alto_valor}
-DEFEITO: {defeito}
+DEFEITO: 
 PRAZO:"""
     return texto
 
@@ -414,12 +422,22 @@ if uploaded_file:
         col_contrato_raw = [c for c in df_raw.columns if c.lower().strip() in ['contrato', 'escritório']]
         
         if col_contrato_raw:
-            todos_contratos = df_raw[col_contrato_raw[0]].astype(str).str.strip().unique()
-            contratos_principais = ["ABILITY_SJ", "TEL_JI"]
+            todos_contratos = df_raw[col_contrato_raw[0]].astype(str).str.strip().str.upper().unique()
+            
+            # LISTA DE CONTRATOS ATUALIZADA
+            contratos_principais = [
+                "ABILITY_SJ", 
+                "TEL_JI", 
+                "ABILITY_OS", 
+                "TEL_INTERIOR", 
+                "TEL_PC_SC", 
+                "TELEMONT"
+            ]
+            
             opcoes_validas = [c for c in contratos_principais if c in todos_contratos]
             
             if not opcoes_validas:
-                st.warning("Contratos ABILITY_SJ ou TEL_JI não encontrados.")
+                st.warning("Nenhum contrato conhecido encontrado no arquivo.")
             else:
                 st.markdown("<p class='contrato-label'>Selecione o Contrato:</p>", unsafe_allow_html=True)
                 
