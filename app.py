@@ -3,9 +3,9 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 import io
 import os
-import subprocess
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import math
 
 # --- Configuração da Página ---
 st.set_page_config(
@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS VISUAL (ESTILO FINAL - SEM UPLOAD) ---
+# --- CSS VISUAL (ESTILO FINAL) ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
@@ -24,7 +24,7 @@ st.markdown("""
     div.stButton > button {
         background-color: white; color: #660099; border: 2px solid #660099;
         border-radius: 8px; font-weight: 700; transition: 0.3s; padding: 0.5rem 1rem;
-        height: auto; width: 100%;
+        height: auto; width: 100%; /* Botões ocupam largura total da coluna */
     }
     div.stButton > button:hover {
         background-color: #660099; color: white; border-color: #660099;
@@ -68,6 +68,37 @@ st.markdown("""
     div[role="radiogroup"]::-webkit-scrollbar { height: 6px; }
     div[role="radiogroup"]::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
 
+    /* UPLOAD */
+    [data-testid="stFileUploaderDropzoneInstructions"] { display: none !important; }
+    [data-testid="stFileUploaderDropzone"]::before {
+        content: "📂 Arraste e solte o arquivo aqui"; display: block; text-align: center;
+        font-weight: 800; font-size: 1.3rem; color: #333; margin-top: 15px;
+    }
+    [data-testid="stFileUploader"] button[kind="secondary"] {
+        float: right !important; color: transparent !important;
+        border: 2px solid #ccc !important; background: white !important;
+        width: 180px !important; height: 45px !important;
+        margin-top: 10px !important; position: relative !important;
+    }
+    [data-testid="stFileUploader"] button[kind="secondary"]::after {
+        content: "Inserir arquivo"; color: #333 !important; position: absolute;
+        top: 50%; left: 50%; transform: translate(-50%, -50%);
+        font-weight: 800 !important; font-size: 16px !important;
+    }
+    [data-testid="stFileUploader"] button[kind="secondary"]:hover { border-color: #660099 !important; }
+    [data-testid="stFileUploader"] button[kind="secondary"]:hover::after { color: #660099 !important; }
+
+    /* X DO UPLOAD */
+    [data-testid="stFileUploadedItem"] > div:first-child { display: none !important; }
+    [data-testid="stFileUploadedItem"] { background: transparent !important; padding: 5px !important; justify-content: flex-end !important; }
+    button[data-testid="stFileUploaderDeleteBtn"] {
+        background-color: #ffebee !important; border: 2px solid #d32f2f !important;
+        width: 45px !important; height: 45px !important; border-radius: 50% !important; transition: 0.2s !important;
+    }
+    button[data-testid="stFileUploaderDeleteBtn"] svg { width: 24px !important; height: 24px !important; fill: #d32f2f !important; }
+    button[data-testid="stFileUploaderDeleteBtn"]:hover { background-color: #d32f2f !important; }
+    button[data-testid="stFileUploaderDeleteBtn"]:hover svg { fill: white !important; }
+
     /* METRICAS E TABELAS */
     div[data-testid="stMetric"] {
         background-color: white; border: 2px solid #e0e0e0; padding: 15px; border-radius: 12px;
@@ -79,16 +110,16 @@ st.markdown("""
     div[data-testid="stMetricDelta"] { font-size: 16px !important; font-weight: 800 !important; }
 
     /* Estilo dos Botões de Download */
-    div.stDownloadButton > button { 
-        width: 100%; border: none; padding: 1rem; border-radius: 10px; 
+    div.stDownloadButton > button {
+        width: 100%; border: none; padding: 1rem; border-radius: 10px;
         font-weight: 800 !important; font-size: 16px !important; transition: 0.3s;
         box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        margin-bottom: 10px;
+        margin-bottom: 10px; /* Espaço entre botões */
     }
     div.stDownloadButton > button:hover {
         color: #660099 !important; border: 2px solid #660099 !important; background-color: #f3e5f5 !important;
     }
-    
+
     .contrato-label { font-size: 20px; font-weight: 800; color: #333; margin-bottom: 8px; margin-left: 2px; }
 </style>
 """, unsafe_allow_html=True)
@@ -101,10 +132,14 @@ ARQUIVO_BASE_CNL_XLSX = "CNL_BASE_MONITORAMENTO.xlsx"
 # --- FUNÇÕES ---
 
 @st.cache_data(ttl=60)
-def carregar_dados_principal(caminho_local):
-    """Carrega apenas do caminho local, sem opção de upload manual"""
+def carregar_dados_principal(uploaded_file=None, caminho_local=None):
     try:
-        if os.path.exists(caminho_local):
+        if uploaded_file is not None:
+            if uploaded_file.name.endswith('.xlsx'):
+                return pd.read_excel(uploaded_file)
+            else:
+                return pd.read_csv(uploaded_file, sep=None, engine='python')
+        elif caminho_local and os.path.exists(caminho_local):
             return pd.read_excel(caminho_local)
         return None
     except Exception as e:
@@ -117,11 +152,11 @@ def carregar_base_cnl():
     if os.path.exists(ARQUIVO_BASE_CNL_CSV):
         try: df = pd.read_csv(ARQUIVO_BASE_CNL_CSV, sep=None, engine='python')
         except: pass
-    
+
     if df is None and os.path.exists(ARQUIVO_BASE_CNL_XLSX):
         try: df = pd.read_excel(ARQUIVO_BASE_CNL_XLSX)
         except: pass
-        
+
     if df is not None:
         if 'CNL' in df.columns and 'MUNICÍPIO' in df.columns:
             df = df.dropna(subset=['CNL'])
@@ -186,7 +221,7 @@ def processar_regras(df_full, contrato_sel):
             if pd.isna(val): return "Vale"
             sigla = str(val).split('-')[0].strip().upper()
             return "Litoral" if sigla in lista_litoral else "Vale"
-        
+
         if col_at: df['Area'] = df[col_at].apply(definir_area)
         else: df['Area'] = "Vale"
     else:
@@ -257,7 +292,7 @@ def gerar_texto_gv(row, contrato):
 {id_occ} - FTTx
 ORIGEM: {origem}
 AT: {at}
-CIDADE: {cidade} 
+CIDADE: {cidade}
 QUANT. PRIMÁRIAS AFETADAS: {primarias}
 CABO: {cabo}
 AFETAÇÃO: {afetacao}
@@ -269,7 +304,7 @@ RECLAMADOS-ANATEL: {rec_anatel}
 CLIENTE VIP:  {vip}
 CLIENTE B2B:  {b2b}
 COND. ALTO VALOR: {alto_valor}
-DEFEITO: 
+DEFEITO:
 PRAZO:"""
     return texto
 
@@ -279,7 +314,7 @@ def gerar_imagem_carimbo_mpl(texto):
     fig, ax = plt.subplots(figsize=(10, h_fig), dpi=200)
     fig.patch.set_facecolor('white')
     ax.axis('off')
-    texto_limpo = texto.replace('*', '') 
+    texto_limpo = texto.replace('*', '')
     ax.text(0.05, 0.95, texto_limpo, ha='left', va='top', fontsize=18, family='monospace', color='#333333', linespacing=1.5, transform=ax.transAxes)
     rect = patches.Rectangle((0, 0), 1, 1, transform=ax.transAxes, linewidth=4, edgecolor='#660099', facecolor='none')
     ax.add_patch(rect)
@@ -290,10 +325,10 @@ def gerar_imagem_carimbo_mpl(texto):
 def gerar_cards_mpl(kpis, contrato):
     C_BG, C_SHADOW, C_BORDER = "#ffffff", "#eeeeee", "#dddddd"
     C_TEXT, C_LABEL, C_RED, C_YELLOW, C_GREEN = "#222222", "#555555", "#d32f2f", "#f57c00", "#2e7d32"
-    
+
     tem_regiao = (contrato == 'ABILITY_SJ')
     h_total = 14 if tem_regiao else 11
-    fig, ax = plt.subplots(figsize=(12, h_total), dpi=200) 
+    fig, ax = plt.subplots(figsize=(12, h_total), dpi=200)
     fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
 
     def draw_card_mobile(x, y, w, h, title, value, val_color=C_TEXT, alert=False, title_size=18):
@@ -331,54 +366,58 @@ def gerar_cards_mpl(kpis, contrato):
     plt.close(fig); return buf.getvalue()
 
 def gerar_lista_mpl_from_view(df_view, col_order, contrato):
+    # --- CONFIGURAÇÕES DE PAGINAÇÃO ---
     ITENS_POR_PAGINA = 20
+
     export_cols = [c for c in col_order if c != 'horas_float']
     df_p = df_view[export_cols].copy()
     rename = {'Ocorrência':'ID', 'Horas Corridas':'Tempo'}
     df_p.rename(columns=rename, inplace=True)
-    
+
     total_linhas = len(df_p)
     num_paginas = (total_linhas + ITENS_POR_PAGINA - 1) // ITENS_POR_PAGINA
+
     lista_imagens = []
 
     def desenhar_pagina(df_chunk, num_pag, total_pags):
         fig_height = max(4, 3 + len(df_chunk)*0.8)
         fig, ax = plt.subplots(figsize=(14, fig_height), dpi=180)
         ax.axis('off'); fig.patch.set_facecolor('white')
-        
+
         hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%d/%m • %H:%M')
         titulo = f"LISTA DE PENDÊNCIAS: {contrato}\n{hora}"
         if total_pags > 1:
             titulo += f"\n(Parte {num_pag}/{total_pags})"
-            
+
         plt.title(titulo, loc='center', pad=40, fontsize=28, weight='black', color='#333')
         tbl = ax.table(cellText=df_chunk.values.tolist(), colLabels=df_chunk.columns, cellLoc='center', loc='center')
         tbl.auto_set_font_size(False); tbl.set_fontsize(20); tbl.scale(1.2, 3.5)
-        
+
         for j in range(len(df_chunk.columns)):
             cell = tbl[(0, j)]; cell.set_facecolor('#660099'); cell.set_text_props(color='white', weight='bold'); cell.set_height(0.15)
-        
+
         for i in range(len(df_chunk)):
             idx_real = df_chunk.index[i]
-            row_original = df_view.loc[idx_real] 
+            row_original = df_view.loc[idx_real]
             c = estilo_tabela(row_original)
             for j in range(len(df_chunk.columns)):
                 cell = tbl[(i+1, j)]
                 cell.set_text_props(color=c, weight='bold')
                 cell.set_edgecolor("#dddddd"); cell.set_linewidth(1.5)
-        
+
         buf = io.BytesIO()
         plt.savefig(buf, format='jpg', dpi=180, bbox_inches='tight', facecolor='white')
         plt.close(fig)
         return buf.getvalue()
 
+    # Gera cada parte
     for i in range(num_paginas):
         inicio = i * ITENS_POR_PAGINA
         fim = inicio + ITENS_POR_PAGINA
         df_chunk = df_p.iloc[inicio:fim]
         img_data = desenhar_pagina(df_chunk, i+1, num_paginas)
         lista_imagens.append(img_data)
-                
+
     return lista_imagens
 
 # --- Interface Principal ---
@@ -386,54 +425,39 @@ st.title("Monitoramento Operacional")
 hora_br = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%d/%m %H:%M:%S')
 st.markdown(f"<div style='margin-bottom: 20px; color: grey; font-weight: bold;'>Atualizado: {hora_br}</div>", unsafe_allow_html=True)
 
-# 1. BOTÃO DE AUTOMAÇÃO
-with st.container():
-    c_btn, c_vazio = st.columns([2, 8])
-    with c_btn:
-        if st.button("Atualizar via SIGMA"):
-            with st.status("Executando robô de extração...", expanded=True) as status:
-                st.write("Iniciando navegador...")
-                if os.path.exists("automacao.py"):
-                    result = subprocess.run(["python", "automacao.py"], capture_output=True, text=True)
-                    if result.returncode == 0:
-                        st.write("✅ Extração concluída!")
-                        status.update(label="Dados Atualizados com Sucesso!", state="complete", expanded=False)
-                        st.rerun() 
-                    else:
-                        status.update(label="Erro na execução", state="error")
-                        st.error("Falha ao rodar o script.")
-                        st.code(result.stderr)
-                else:
-                    st.error("Script 'automacao.py' não encontrado.")
-                    status.update(label="Erro: Script ausente", state="error")
+# 2. UPLOAD E CARREGAMENTO
+uploaded_file = st.file_uploader("Inserir arquivo", type=["xlsx", "csv"], key="uploader", label_visibility="collapsed")
 
-# 2. CARREGAMENTO (SOMENTE LOCAL)
-df_raw = carregar_dados_principal(CAMINHO_LOCAL_DADOS)
+df_raw = None
+if uploaded_file:
+    df_raw = carregar_dados_principal(uploaded_file=uploaded_file)
+elif os.path.exists(CAMINHO_LOCAL_DADOS):
+    df_raw = carregar_dados_principal(caminho_local=CAMINHO_LOCAL_DADOS)
 
 # 3. EXIBIÇÃO
 if df_raw is not None and not df_raw.empty:
     col_contrato_raw = [c for c in df_raw.columns if c.lower().strip() in ['contrato', 'escritório']]
-    
+
     if col_contrato_raw:
         todos_contratos = df_raw[col_contrato_raw[0]].astype(str).str.strip().str.upper().unique()
-        
+
         contratos_principais = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_PC_SC", "TELEMONT"]
         opcoes_validas = [c for c in contratos_principais if c in todos_contratos]
-        
+
         if not opcoes_validas:
             st.warning("Nenhum contrato conhecido encontrado no arquivo.")
         else:
             st.markdown("<p class='contrato-label'>Selecione o Contrato:</p>", unsafe_allow_html=True)
             contrato_selecionado = st.radio("Selecione:", opcoes_validas, horizontal=True, label_visibility="collapsed")
-            
+
             df = processar_regras(df_raw, contrato_selecionado)
-            
+
             if df.empty:
                 st.warning("Nenhum dado válido encontrado.")
             else:
                 kpis = {
                     'total': len(df), 'sem_tec': len(df[df['Técnicos']==0]),
-                    'sla_red': len(df[df['horas_float']>24]), 
+                    'sla_red': len(df[df['horas_float']>24]),
                     'sla_yellow': len(df[(df['horas_float']>8)&(df['horas_float']<=24)]),
                     'sla_green': len(df[df['horas_float']<=8]),
                     'lit': len(df[df['Area']=="Litoral"]), 'vale': len(df[df['Area']=="Vale"])
@@ -442,7 +466,7 @@ if df_raw is not None and not df_raw.empty:
                 st.success("✅ **Dados Processados!**")
                 c1, c2 = st.columns(2)
                 nome = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%H%M')
-                
+
                 try:
                     img_cards = gerar_cards_mpl(kpis, contrato_selecionado)
                     c1.download_button("📸 Baixar Resumo (Cards)", img_cards, f"Resumo_{nome}.jpg", "image/jpeg", use_container_width=True)
@@ -472,7 +496,7 @@ if df_raw is not None and not df_raw.empty:
                 st.subheader("SLA")
                 s1, s2, s3 = st.columns(3, gap="medium")
                 s1.metric("Crítico (>24h)", kpis['sla_red'])
-                s2.metric("Fora do Prazo (8-24h)", kpis['sla_yellow'])
+                s2.metric("Atenção (8-24h)", kpis['sla_yellow'])
                 s3.metric("No Prazo (<8h)", kpis['sla_green'])
 
                 if contrato_selecionado == 'ABILITY_SJ':
@@ -498,14 +522,17 @@ if df_raw is not None and not df_raw.empty:
 
                 cols_exist = [c for c in ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'Técnicos', 'horas_float'] if c in df_show.columns]
                 styler = df_show[cols_exist].style.apply(row_style_apply, axis=1).set_properties(**{'font-size': '16px', 'font-weight': '600'})
-                st.dataframe(styler, height=600, use_container_width=True, 
+                st.dataframe(styler, height=600, use_container_width=True,
                              column_config={"Ocorrência": st.column_config.TextColumn("ID", width="medium"), "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"), "horas_float": None})
 
+                # --- BOTÕES DE DOWNLOAD MÚLTIPLOS (SEM ZIP) ---
                 try:
                     cols_exp = [c for c in cols_exist if c != 'horas_float']
-                    
+
+                    # Função agora retorna uma LISTA de imagens
                     lista_imagens = gerar_lista_mpl_from_view(df_show, cols_exp, contrato_selecionado)
-                    
+
+                    # Gera um botão para cada imagem
                     if len(lista_imagens) == 1:
                         c2.download_button("📄 Baixar Lista", lista_imagens[0], f"Lista_{nome}.jpg", "image/jpeg", use_container_width=True)
                     else:
@@ -514,12 +541,10 @@ if df_raw is not None and not df_raw.empty:
                             label_botao = f"📄 Baixar Lista (Parte {idx_img + 1})"
                             nome_arquivo = f"Lista_{nome}_Parte_{idx_img + 1}.jpg"
                             c2.download_button(label_botao, img_data, nome_arquivo, "image/jpeg", use_container_width=True)
-                            
+
                 except Exception as e:
                     st.error(f"Erro ao gerar lista: {e}")
     else:
         st.error("Coluna 'Contrato' não encontrada.")
 else:
-    # Mensagem amigável quando não há dados
-    st.info("Nenhuma base de dados encontrada.")
-    st.markdown("**Para começar:**\n1. Clique no botão **'Atualizar via SIGMA'** acima.\n2. Aguarde o download da base.\n3. A tela será atualizada automaticamente.")
+    st.info("Carregue a base geral para iniciar.")
