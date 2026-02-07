@@ -3,160 +3,175 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 import io
 import os
+import time
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import math
 
-# --- Configuração da Página ---
-st.set_page_config(
-    page_title="Monitoramento Operacional",
-    page_icon="⏱️",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# --- Configuração ---
+st.set_page_config(page_title="Monitoramento Operacional", page_icon="📡", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CSS VISUAL (ESTILO FINAL) ---
+# --- CSS VISUAL ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
-
-    /* BOTÕES PADRÃO - Estilo Roxo */
-    div.stButton > button {
-        background-color: white; color: #660099; border: 2px solid #660099;
-        border-radius: 8px; font-weight: 700; transition: 0.3s; padding: 0.5rem 1rem;
-        height: auto; width: 100%; /* Botões ocupam largura total da coluna */
+    
+    /* ============================================================
+       1. CORREÇÃO DOS BOTÕES DE CONTRATO (SÓ RETÂNGULO)
+       ============================================================ */
+    
+    div[role="radiogroup"] label > div:first-child {
+        display: none !important;
     }
-    div.stButton > button:hover {
-        background-color: #660099; color: white; border-color: #660099;
-    }
-
-    /* BOTÕES DE CONTRATO (RADIO) */
-    [data-testid="stRadio"] { background: transparent !important; }
-    [data-testid="stRadio"] > label { display: none !important; }
-
+    
     div[role="radiogroup"] {
         display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto;
         width: 100%; gap: 15px; padding-bottom: 10px;
     }
-
+    
     div[role="radiogroup"] label {
         background-color: white !important;
         border: 3px solid #660099 !important;
         border-radius: 12px !important;
         padding: 15px 10px !important;
-        flex: 0 0 auto !important; min-width: 140px !important;
-        display: flex !important; justify-content: center !important; align-items: center !important;
-        text-align: center !important; cursor: pointer !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; margin: 0 !important; transition: 0.3s !important;
+        min-width: 140px !important;
+        
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        text-align: center !important;
+        
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+        transition: 0.3s !important;
+        cursor: pointer !important;
     }
-
-    div[role="radiogroup"] label > div:first-child { display: none !important; }
-
+    
     div[role="radiogroup"] label p {
-        font-size: 18px !important; font-weight: 900 !important; margin: 0 !important;
-        color: #660099 !important; white-space: nowrap !important; text-transform: uppercase !important;
+        font-size: 18px !important;
+        font-weight: 900 !important;
+        margin: 0 !important;
+        color: #660099 !important;
+        width: 100%;
     }
-
+    
     div[role="radiogroup"] label:has(input:checked) {
-        background-color: #660099 !important; box-shadow: 0 6px 12px rgba(102, 0, 153, 0.4) !important;
+        background-color: #660099 !important;
         transform: translateY(-2px);
     }
-    div[role="radiogroup"] label:has(input:checked) p { color: #ffffff !important; }
-    div[role="radiogroup"] label:hover { background-color: #f3e5f5 !important; }
-
-    /* SCROLLBAR DOS BOTÕES */
-    div[role="radiogroup"]::-webkit-scrollbar { height: 6px; }
-    div[role="radiogroup"]::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
-
-    /* UPLOAD */
-    [data-testid="stFileUploaderDropzoneInstructions"] { display: none !important; }
-    [data-testid="stFileUploaderDropzone"]::before {
-        content: "📂 Arraste e solte o arquivo aqui"; display: block; text-align: center;
-        font-weight: 800; font-size: 1.3rem; color: #333; margin-top: 15px;
+    div[role="radiogroup"] label:has(input:checked) p {
+        color: #ffffff !important;
     }
+
+    /* ============================================================
+       2. PERSONALIZAÇÃO DO UPLOAD (TEXTOS CORRIGIDOS)
+       ============================================================ */
+    
+    /* Botão "Inserir Arquivo" */
     [data-testid="stFileUploader"] button[kind="secondary"] {
-        float: right !important; color: transparent !important;
-        border: 2px solid #ccc !important; background: white !important;
-        width: 180px !important; height: 45px !important;
-        margin-top: 10px !important; position: relative !important;
+        color: transparent !important; 
+        position: relative;
+        width: 190px !important; /* Largura ajustada para caber o texto */
     }
+    
     [data-testid="stFileUploader"] button[kind="secondary"]::after {
-        content: "Inserir arquivo"; color: #333 !important; position: absolute;
-        top: 50%; left: 50%; transform: translate(-50%, -50%);
-        font-weight: 800 !important; font-size: 16px !important;
+        content: "Inserir Arquivo"; /* Texto Solicitado */
+        color: #333;
+        font-weight: 700;
+        font-size: 16px;
+        position: absolute;
+        left: 0; right: 0; top: 0; bottom: 0;
+        display: flex; justify-content: center; align-items: center;
     }
-    [data-testid="stFileUploader"] button[kind="secondary"]:hover { border-color: #660099 !important; }
-    [data-testid="stFileUploader"] button[kind="secondary"]:hover::after { color: #660099 !important; }
-
-    /* X DO UPLOAD */
-    [data-testid="stFileUploadedItem"] > div:first-child { display: none !important; }
-    [data-testid="stFileUploadedItem"] { background: transparent !important; padding: 5px !important; justify-content: flex-end !important; }
-    button[data-testid="stFileUploaderDeleteBtn"] {
-        background-color: #ffebee !important; border: 2px solid #d32f2f !important;
-        width: 45px !important; height: 45px !important; border-radius: 50% !important; transition: 0.2s !important;
+    [data-testid="stFileUploader"] button[kind="secondary"]:hover::after {
+        color: #660099;
     }
-    button[data-testid="stFileUploaderDeleteBtn"] svg { width: 24px !important; height: 24px !important; fill: #d32f2f !important; }
-    button[data-testid="stFileUploaderDeleteBtn"]:hover { background-color: #d32f2f !important; }
-    button[data-testid="stFileUploaderDeleteBtn"]:hover svg { fill: white !important; }
 
-    /* METRICAS E TABELAS */
+    /* Texto de instrução "Insira a Base Sigma" */
+    [data-testid="stFileUploaderDropzoneInstructions"] { display: none; }
+    [data-testid="stFileUploaderDropzone"]::before {
+        content: "📂 Insira a Base Sigma"; /* Texto Solicitado */
+        display: block; text-align: center; font-weight: 800; font-size: 1.2rem; color: #333; margin-top: 10px;
+    }
+
+    /* ============================================================
+       OUTROS ESTILOS
+       ============================================================ */
+    
+    /* ABAS */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px; background-color: #fff; border-radius: 4px 4px 0 0;
+        border: 1px solid #ddd; color: #666;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #f3e5f5; color: #660099; border-color: #660099; border-bottom: none; font-weight: bold;
+    }
+
+    /* BOTÕES GERAIS */
+    div.stButton > button {
+        background-color: white; color: #660099; border: 2px solid #660099;
+        border-radius: 8px; font-weight: 700; transition: 0.3s; padding: 0.5rem 1rem;
+        height: auto; width: 100%;
+    }
+    div.stButton > button:hover { background-color: #660099; color: white; border-color: #660099; }
+
+    /* BOTÃO DOWNLOAD ROXO */
+    [data-testid="stDownloadButton"] > button {
+        background-color: #660099 !important; color: white !important; border: none !important;
+        font-size: 18px !important; padding: 15px !important;
+    }
+    [data-testid="stDownloadButton"] > button:hover { background-color: #4b007d !important; }
+
+    /* METRICAS */
     div[data-testid="stMetric"] {
-        background-color: white; border: 2px solid #e0e0e0; padding: 15px; border-radius: 12px;
-        text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.08); height: 140px;
-        display: flex; flex-direction: column; justify-content: center; align-items: center;
+        background-color: white; border: 2px solid #e0e0e0; padding: 10px; border-radius: 12px;
+        text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.08);
+        min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center;
     }
-    div[data-testid="stMetricLabel"] { width: 100%; justify-content: center; font-size: 18px !important; font-weight: 700 !important; color: #444; }
-    div[data-testid="stMetricValue"] { font-size: 36px !important; font-weight: 900 !important; color: #000; }
-    div[data-testid="stMetricDelta"] { font-size: 16px !important; font-weight: 800 !important; }
-
-    /* Estilo dos Botões de Download */
-    div.stDownloadButton > button {
-        width: 100%; border: none; padding: 1rem; border-radius: 10px;
-        font-weight: 800 !important; font-size: 16px !important; transition: 0.3s;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        margin-bottom: 10px; /* Espaço entre botões */
+    div[data-testid="stMetricLabel"] {
+        width: 100%; display: flex; justify-content: center;
+        font-size: 1.1rem !important; font-weight: 800 !important; color: #444;
     }
-    div.stDownloadButton > button:hover {
-        color: #660099 !important; border: 2px solid #660099 !important; background-color: #f3e5f5 !important;
+    div[data-testid="stMetricValue"] {
+        width: 100%; display: flex; justify-content: center;
+        font-size: 2.5rem !important; font-weight: 900 !important; color: #000;
     }
-
+    [data-testid="stMetricDelta"] { justify-content: center; font-weight: 700; }
+    
     .contrato-label { font-size: 20px; font-weight: 800; color: #333; margin-bottom: 8px; margin-left: 2px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- CONSTANTES ---
-CAMINHO_LOCAL_DADOS = os.path.join("dados", "base_atualizada.xlsx")
-ARQUIVO_BASE_CNL_CSV = "CNL_BASE_MONITORAMENTO.csv"
-ARQUIVO_BASE_CNL_XLSX = "CNL_BASE_MONITORAMENTO.xlsx"
+# --- ARQUIVOS DE APOIO (CNL) ---
+ARQUIVO_CNL_CSV = "CNL_BASE_MONITORAMENTO.csv"
+ARQUIVO_CNL_XLSX = "CNL_BASE_MONITORAMENTO.xlsx"
 
 # --- FUNÇÕES ---
 
-@st.cache_data(ttl=60)
-def carregar_dados_principal(uploaded_file=None, caminho_local=None):
+@st.cache_data(ttl=300) 
+def carregar_dados_upload(file):
     try:
-        if uploaded_file is not None:
-            if uploaded_file.name.endswith('.xlsx'):
-                return pd.read_excel(uploaded_file)
-            else:
-                return pd.read_csv(uploaded_file, sep=None, engine='python')
-        elif caminho_local and os.path.exists(caminho_local):
-            return pd.read_excel(caminho_local)
-        return None
+        if file.name.endswith('.xlsx'):
+            df = pd.read_excel(file)
+        else:
+            df = pd.read_csv(file, sep=None, engine='python')
+            
+        colunas_lower = [str(c).lower() for c in df.columns]
+        if not any("ocorrência" in c or "ocorrencia" in c for c in colunas_lower):
+             df = pd.read_excel(file, header=1)
+        return df
     except Exception as e:
-        st.error(f"Erro ao ler arquivo principal: {e}")
-        return None
+        st.error(f"Erro leitura: {e}")
+    return None
 
 @st.cache_data(ttl=3600)
 def carregar_base_cnl():
     df = None
-    if os.path.exists(ARQUIVO_BASE_CNL_CSV):
-        try: df = pd.read_csv(ARQUIVO_BASE_CNL_CSV, sep=None, engine='python')
+    if os.path.exists(ARQUIVO_CNL_CSV):
+        try: df = pd.read_csv(ARQUIVO_CNL_CSV, sep=None, engine='python')
         except: pass
-
-    if df is None and os.path.exists(ARQUIVO_BASE_CNL_XLSX):
-        try: df = pd.read_excel(ARQUIVO_BASE_CNL_XLSX)
+    if df is None and os.path.exists(ARQUIVO_CNL_XLSX):
+        try: df = pd.read_excel(ARQUIVO_CNL_XLSX)
         except: pass
-
     if df is not None:
         if 'CNL' in df.columns and 'MUNICÍPIO' in df.columns:
             df = df.dropna(subset=['CNL'])
@@ -165,11 +180,10 @@ def carregar_base_cnl():
             return df[['CNL', 'MUNICÍPIO']].drop_duplicates(subset='CNL')
     return None
 
-def processar_regras(df_full, contrato_sel):
+def processar_regras_generico(df_full, contratos_validos=None, filtrar_contrato=None):
     agora = datetime.now(timezone.utc) - timedelta(hours=3)
     agora = agora.replace(tzinfo=None)
-
-    cols_map = {c.lower().strip(): c for c in df_full.columns}
+    cols_map = {str(c).lower().strip(): c for c in df_full.columns}
 
     df_cnl = carregar_base_cnl()
     col_cnl_main = cols_map.get('cnl')
@@ -179,23 +193,28 @@ def processar_regras(df_full, contrato_sel):
         df_full.rename(columns={'MUNICÍPIO': 'Cidade_Real'}, inplace=True)
 
     col_contrato = cols_map.get('contrato') or cols_map.get('escritório')
+    
     if col_contrato:
-        df = df_full[df_full[col_contrato].astype(str).str.strip().str.upper() == contrato_sel].copy()
-    else:
+        df_full['Contrato_Padrao'] = df_full[col_contrato].astype(str).str.strip().str.upper()
+        if filtrar_contrato:
+            df = df_full[df_full['Contrato_Padrao'] == filtrar_contrato].copy()
+        elif contratos_validos:
+            df = df_full[df_full['Contrato_Padrao'].isin(contratos_validos)].copy()
+        else:
+            return pd.DataFrame()
+    else: 
         return pd.DataFrame()
 
     col_abertura = cols_map.get('abertura') or cols_map.get('data abertura')
     if not col_abertura: return pd.DataFrame()
 
-    try:
-        df['Abertura_dt'] = pd.to_datetime(df[col_abertura], format='%d/%m/%Y, %H:%M:%S', errors='coerce')
-    except:
-        df['Abertura_dt'] = pd.to_datetime(df[col_abertura], dayfirst=True, errors='coerce')
+    try: df['Abertura_dt'] = pd.to_datetime(df[col_abertura], format='%d/%m/%Y, %H:%M:%S', errors='coerce')
+    except: df['Abertura_dt'] = pd.to_datetime(df[col_abertura], dayfirst=True, errors='coerce')
     df = df.dropna(subset=['Abertura_dt'])
 
     df['diff_segundos'] = (agora - df['Abertura_dt']).dt.total_seconds()
     df['horas_float'] = df['diff_segundos'] / 3600
-
+    
     def formatar_hhmmss(s):
         if s < 0: return "00:00:00"
         m, s = divmod(int(s), 60); h, m = divmod(m, 60)
@@ -214,20 +233,23 @@ def processar_regras(df_full, contrato_sel):
     col_afe = cols_map.get('afetação') or cols_map.get('afetacao')
     df['Afetação'] = pd.to_numeric(df[col_afe], errors='coerce') if col_afe else pd.NA
 
-    if contrato_sel == 'ABILITY_SJ':
-        col_at = cols_map.get('at') or cols_map.get('area')
+    if 'Area' not in df.columns:
         lista_litoral = ['TG', 'PG', 'LZ', 'MK', 'MG', 'PN', 'AA', 'BV', 'FM', 'RP', 'AC', 'FP', 'BA', 'TQ', 'BO', 'BU', 'BC', 'PJ', 'PB', 'MR']
-        def definir_area(val):
-            if pd.isna(val): return "Vale"
-            sigla = str(val).split('-')[0].strip().upper()
-            return "Litoral" if sigla in lista_litoral else "Vale"
-
-        if col_at: df['Area'] = df[col_at].apply(definir_area)
-        else: df['Area'] = "Vale"
-    else:
-        df['Area'] = "Geral"
+        col_at = cols_map.get('at') or cols_map.get('area')
+        def definir_area_safe(row):
+            if row['Contrato_Padrao'] == 'ABILITY_SJ':
+                val = row.get(col_at) if col_at else None
+                if pd.isna(val): return "Vale"
+                sigla = str(val).split('-')[0].strip().upper()
+                return "Litoral" if sigla in lista_litoral else "Vale"
+            return "Geral"
+        if col_at: df['Area'] = df.apply(definir_area_safe, axis=1)
+        else: df['Area'] = "Geral"
 
     return df.sort_values(by='horas_float', ascending=False)
+
+def processar_regras(df_full, contratos_validos=None, filtrar_contrato=None):
+    return processar_regras_generico(df_full, filtrar_contrato=filtrar_contrato)
 
 def estilo_tabela(row):
     h = row.get('horas_float', None)
@@ -243,7 +265,7 @@ def row_style_apply(row):
     c = estilo_tabela(row)
     return [f'color: {c}; font-weight: 800'] * len(row)
 
-# --- Geradores de Imagem e Texto ---
+# --- GERADORES VISUAIS ---
 
 def gerar_texto_gv(row, contrato):
     cols_map = {c.lower().strip(): c for c in row.index}
@@ -323,20 +345,18 @@ def gerar_imagem_carimbo_mpl(texto):
     plt.close(fig); return buf.getvalue()
 
 def gerar_cards_mpl(kpis, contrato):
-    C_BG, C_SHADOW, C_BORDER = "#ffffff", "#eeeeee", "#dddddd"
+    C_BG, C_BORDER = "#ffffff", "#dddddd"
     C_TEXT, C_LABEL, C_RED, C_YELLOW, C_GREEN = "#222222", "#555555", "#d32f2f", "#f57c00", "#2e7d32"
-
+    
     tem_regiao = (contrato == 'ABILITY_SJ')
     h_total = 14 if tem_regiao else 11
-    fig, ax = plt.subplots(figsize=(12, h_total), dpi=200)
+    fig, ax = plt.subplots(figsize=(12, h_total), dpi=200) 
     fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
 
-    def draw_card_mobile(x, y, w, h, title, value, val_color=C_TEXT, alert=False, title_size=18):
+    def draw_card_mobile(x, y, w, h, title, value, val_color=C_TEXT, alert=False):
         card = patches.FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0,rounding_size=3", fc="white", ec=C_BORDER, lw=2, zorder=2)
         ax.add_patch(card)
-        shadow = patches.FancyBboxPatch((x+0.8, y-0.8), w, h, boxstyle="round,pad=0,rounding_size=3", fc="#e0e0e0", ec="none", zorder=1)
-        ax.add_patch(shadow)
-        ax.text(x + w/2, y + h*0.82, title.upper(), ha='center', va='center', fontsize=title_size, color=C_LABEL, weight='bold', zorder=3)
+        ax.text(x + w/2, y + h*0.82, title.upper(), ha='center', va='center', fontsize=18, color=C_LABEL, weight='bold', zorder=3)
         ax.text(x + w/2, y + h*0.4, str(value), ha='center', va='center', fontsize=55, color=val_color, weight='black', zorder=3)
         if alert:
             ax.add_patch(patches.Circle((x + w - 4, y + h - 4), 2.5, color=C_RED, zorder=4))
@@ -351,9 +371,9 @@ def gerar_cards_mpl(kpis, contrato):
     draw_card_mobile(52, y1, 46, h_card, "S/ Técnico", kpis['sem_tec'], C_TEXT, alert=(kpis['sem_tec']>0))
 
     y2, w_sla, gap = 42, 30, 3
-    draw_card_mobile(2, y2, w_sla, h_card, "Crítico (>24h)", kpis['sla_red'], C_RED, title_size=13)
-    draw_card_mobile(2 + w_sla + gap, y2, w_sla, h_card, "Fora do Prazo (8-24h)", kpis['sla_yellow'], C_YELLOW, title_size=13)
-    draw_card_mobile(2 + 2*(w_sla + gap), y2, w_sla, h_card, "No Prazo (<8h)", kpis['sla_green'], C_GREEN, title_size=13)
+    draw_card_mobile(2, y2, w_sla, h_card, "Crítico (>24h)", kpis['sla_red'], C_RED)
+    draw_card_mobile(2 + w_sla + gap, y2, w_sla, h_card, "Atenção (8-24h)", kpis['sla_yellow'], C_YELLOW)
+    draw_card_mobile(2 + 2*(w_sla + gap), y2, w_sla, h_card, "No Prazo (<8h)", kpis['sla_green'], C_GREEN)
 
     if tem_regiao:
         y3 = 16
@@ -365,186 +385,325 @@ def gerar_cards_mpl(kpis, contrato):
     plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG)
     plt.close(fig); return buf.getvalue()
 
-def gerar_lista_mpl_from_view(df_view, col_order, contrato):
-    # --- CONFIGURAÇÕES DE PAGINAÇÃO ---
-    ITENS_POR_PAGINA = 20
+def gerar_dashboard_gerencial(df_geral, contratos_list):
+    """Gera dashboard consolidado com tabela e nova coluna Críticos >24h"""
+    C_BG = "#ffffff"
+    C_BAR = "#660099"
+    C_RED = "#d32f2f"
+    C_GREEN = "#2e7d32"
+    
+    # Filtra contratos
+    df_filtrado = df_geral[df_geral['Contrato_Padrao'].isin(contratos_list)].copy()
+    
+    total_geral = len(df_filtrado)
+    total_gv = len(df_filtrado[df_filtrado['Afetação'] >= 100])
+    total_fora = len(df_filtrado[df_filtrado['horas_float'] >= 8]) 
+    total_dentro = total_geral - total_fora
 
+    resumo = df_filtrado.groupby('Contrato_Padrao').agg(
+        Total=('Ocorrência', 'count'),
+        Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()),
+        Fora_Prazo=('horas_float', lambda x: (x >= 8).sum()),
+        Criticos=('horas_float', lambda x: (x > 24).sum())
+    ).reset_index().sort_values('Total', ascending=False)
+
+    fig, ax = plt.subplots(figsize=(14, 12), dpi=200) 
+    fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
+
+    hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%d/%m %H:%M")
+    ax.text(50, 96, "VISÃO CLUSTER", ha='center', fontsize=32, weight='black', color='#333')
+    ax.text(50, 92, f"Consolidado Geral • {hora}", ha='center', fontsize=20, weight='bold', color='#660099')
+
+    def draw_box(x, y, w, h, title, val, color, alert=False):
+        rect = patches.FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0,rounding_size=2", fc="white", ec="#ccc", lw=2, zorder=2)
+        ax.add_patch(rect)
+        shadow = patches.FancyBboxPatch((x+0.5, y-0.5), w, h, boxstyle="round,pad=0,rounding_size=2", fc="#eee", ec="none", zorder=1)
+        ax.add_patch(shadow)
+        ax.text(x+w/2, y+h*0.8, title.upper(), ha='center', fontsize=14, color='#555', weight='bold', zorder=3)
+        ax.text(x+w/2, y+h*0.35, str(val), ha='center', fontsize=40, color=color, weight='black', zorder=3)
+        if alert:
+             ax.add_patch(patches.Circle((x + w - 3, y + h - 3), 2, color=C_RED, zorder=4))
+             ax.text(x + w - 3, y + h - 3, "!", color="white", fontsize=16, weight='bold', ha='center', va='center', zorder=5)
+
+    # Linha 1
+    draw_box(5, 75, 42, 12, "Total de Casos", total_geral, "#333")
+    draw_box(53, 75, 42, 12, "Grandes Vultos", total_gv, C_BAR, alert=(total_gv>0))
+    # Linha 2
+    draw_box(5, 60, 42, 12, "Dentro do Prazo (<8h)", total_dentro, C_GREEN)
+    draw_box(53, 60, 42, 12, "Fora do Prazo (>=8h)", total_fora, C_RED, alert=(total_fora>0))
+
+    # --- TABELA DETALHADA ---
+    y_start = 55
+    ax.text(50, y_start, "DETALHAMENTO POR CONTRATO", ha='center', fontsize=18, weight='bold', color='#333')
+    
+    colunas = ["CONTRATO", "TOTAL", "G. VULTO", "FORA PRAZO", "CRÍTICO >24H"]
+    dados_tabela = []
+    for _, row in resumo.iterrows():
+        dados_tabela.append([
+            row['Contrato_Padrao'],
+            str(row['Total']),
+            str(row['Grandes_Vultos']),
+            str(row['Fora_Prazo']),
+            str(row['Criticos'])
+        ])
+    
+    table_y = y_start - 35 
+    tbl = ax.table(cellText=dados_tabela, colLabels=colunas, loc='center', bbox=[0.05, 0.05, 0.9, 0.45])
+    tbl.auto_set_font_size(False); tbl.set_fontsize(13); tbl.scale(1, 2) 
+
+    for (i, j), cell in tbl.get_celld().items():
+        if i == 0:
+            cell.set_text_props(weight='bold', color='white')
+            cell.set_facecolor('#660099')
+            cell.set_edgecolor('white')
+        else:
+            cell.set_edgecolor('#dddddd')
+            cell.set_text_props(weight='bold')
+            if i % 2 == 0: cell.set_facecolor('#f9f9f9')
+
+    ax.text(50, 2, "Gerado via Painel de Controle", ha='center', fontsize=12, color="#999")
+    buf = io.BytesIO()
+    plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG)
+    plt.close(fig); return buf.getvalue()
+
+def gerar_lista_mpl_from_view(df_view, col_order, contrato):
+    ITENS_POR_PAGINA = 20
     export_cols = [c for c in col_order if c != 'horas_float']
     df_p = df_view[export_cols].copy()
     rename = {'Ocorrência':'ID', 'Horas Corridas':'Tempo'}
     df_p.rename(columns=rename, inplace=True)
-
+    
     total_linhas = len(df_p)
     num_paginas = (total_linhas + ITENS_POR_PAGINA - 1) // ITENS_POR_PAGINA
-
     lista_imagens = []
 
     def desenhar_pagina(df_chunk, num_pag, total_pags):
         fig_height = max(4, 3 + len(df_chunk)*0.8)
         fig, ax = plt.subplots(figsize=(14, fig_height), dpi=180)
         ax.axis('off'); fig.patch.set_facecolor('white')
-
+        
         hora = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%d/%m • %H:%M')
         titulo = f"LISTA DE PENDÊNCIAS: {contrato}\n{hora}"
-        if total_pags > 1:
-            titulo += f"\n(Parte {num_pag}/{total_pags})"
-
+        if total_pags > 1: titulo += f"\n(Parte {num_pag}/{total_pags})"
+            
         plt.title(titulo, loc='center', pad=40, fontsize=28, weight='black', color='#333')
         tbl = ax.table(cellText=df_chunk.values.tolist(), colLabels=df_chunk.columns, cellLoc='center', loc='center')
         tbl.auto_set_font_size(False); tbl.set_fontsize(20); tbl.scale(1.2, 3.5)
-
+        
         for j in range(len(df_chunk.columns)):
             cell = tbl[(0, j)]; cell.set_facecolor('#660099'); cell.set_text_props(color='white', weight='bold'); cell.set_height(0.15)
-
+        
         for i in range(len(df_chunk)):
             idx_real = df_chunk.index[i]
-            row_original = df_view.loc[idx_real]
+            row_original = df_view.loc[idx_real] 
             c = estilo_tabela(row_original)
             for j in range(len(df_chunk.columns)):
-                cell = tbl[(i+1, j)]
-                cell.set_text_props(color=c, weight='bold')
-                cell.set_edgecolor("#dddddd"); cell.set_linewidth(1.5)
-
+                cell = tbl[(i+1, j)]; cell.set_text_props(color=c, weight='bold'); cell.set_edgecolor("#dddddd"); cell.set_linewidth(1.5)
+        
         buf = io.BytesIO()
         plt.savefig(buf, format='jpg', dpi=180, bbox_inches='tight', facecolor='white')
-        plt.close(fig)
-        return buf.getvalue()
+        plt.close(fig); return buf.getvalue()
 
-    # Gera cada parte
     for i in range(num_paginas):
         inicio = i * ITENS_POR_PAGINA
         fim = inicio + ITENS_POR_PAGINA
         df_chunk = df_p.iloc[inicio:fim]
         img_data = desenhar_pagina(df_chunk, i+1, num_paginas)
         lista_imagens.append(img_data)
-
     return lista_imagens
 
-# --- Interface Principal ---
-st.title("Monitoramento Operacional")
-hora_br = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%d/%m %H:%M:%S')
-st.markdown(f"<div style='margin-bottom: 20px; color: grey; font-weight: bold;'>Atualizado: {hora_br}</div>", unsafe_allow_html=True)
+# ==============================================================================
+# LÓGICA PRINCIPAL DO PAINEL
+# ==============================================================================
 
-# 2. UPLOAD E CARREGAMENTO
+st.title("Monitoramento Operacional")
+
+# 1. UPLOAD MANUAL
 uploaded_file = st.file_uploader("Inserir arquivo", type=["xlsx", "csv"], key="uploader", label_visibility="collapsed")
 
 df_raw = None
-if uploaded_file:
-    df_raw = carregar_dados_principal(uploaded_file=uploaded_file)
-elif os.path.exists(CAMINHO_LOCAL_DADOS):
-    df_raw = carregar_dados_principal(caminho_local=CAMINHO_LOCAL_DADOS)
+if uploaded_file is not None:
+    # LÊ IMEDIATAMENTE DA MEMÓRIA
+    df_raw = carregar_dados_upload(uploaded_file)
 
-# 3. EXIBIÇÃO
+# 2. EXIBIÇÃO
 if df_raw is not None and not df_raw.empty:
-    col_contrato_raw = [c for c in df_raw.columns if c.lower().strip() in ['contrato', 'escritório']]
-
+    col_contrato_raw = [c for c in df_raw.columns if str(c).lower().strip() in ['contrato', 'escritório']]
+    
     if col_contrato_raw:
         todos_contratos = df_raw[col_contrato_raw[0]].astype(str).str.strip().str.upper().unique()
-
         contratos_principais = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_PC_SC", "TELEMONT"]
         opcoes_validas = [c for c in contratos_principais if c in todos_contratos]
-
+        
         if not opcoes_validas:
-            st.warning("Nenhum contrato conhecido encontrado no arquivo.")
+            st.warning("Nenhum contrato conhecido encontrado.")
         else:
-            st.markdown("<p class='contrato-label'>Selecione o Contrato:</p>", unsafe_allow_html=True)
-            contrato_selecionado = st.radio("Selecione:", opcoes_validas, horizontal=True, label_visibility="collapsed")
+            # ==========================================================
+            # ESTRUTURA DE ABAS
+            # ==========================================================
+            tab_op, tab_ger = st.tabs(["👷 Visão Operacional", "📊 Visão Cluster"])
 
-            df = processar_regras(df_raw, contrato_selecionado)
-
-            if df.empty:
-                st.warning("Nenhum dado válido encontrado.")
-            else:
-                kpis = {
-                    'total': len(df), 'sem_tec': len(df[df['Técnicos']==0]),
-                    'sla_red': len(df[df['horas_float']>24]),
-                    'sla_yellow': len(df[(df['horas_float']>8)&(df['horas_float']<=24)]),
-                    'sla_green': len(df[df['horas_float']<=8]),
-                    'lit': len(df[df['Area']=="Litoral"]), 'vale': len(df[df['Area']=="Vale"])
-                }
-
-                st.success("✅ **Dados Processados!**")
-                c1, c2 = st.columns(2)
-                nome = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%H%M')
-
-                try:
-                    img_cards = gerar_cards_mpl(kpis, contrato_selecionado)
-                    c1.download_button("📸 Baixar Resumo (Cards)", img_cards, f"Resumo_{nome}.jpg", "image/jpeg", use_container_width=True)
-                except Exception as e: st.error(e)
-
-                df_gv = df[df['Afetação'] >= 100].copy()
-                if not df_gv.empty:
-                    st.markdown("---")
-                    st.error(f"🚨 **GRANDE VULTO IDENTIFICADO ({len(df_gv)})**")
-                    with st.expander("Ver Carimbos Grande Vulto", expanded=True):
-                        for idx, row in df_gv.iterrows():
-                            texto_pronto = gerar_texto_gv(row, contrato_selecionado)
-                            st.code(texto_pronto, language="text")
-                            try:
-                                img_carimbo = gerar_imagem_carimbo_mpl(texto_pronto)
-                                st.download_button(f"📸 Baixar Carimbo - {row['Ocorrência']}", img_carimbo, f"Carimbo_{row['Ocorrência']}.jpg", "image/jpeg", key=f"gv_{idx}")
-                            except: pass
-                            st.divider()
-                st.divider()
-
-                st.subheader("Visão Geral")
-                m1, m2 = st.columns(2, gap="medium")
-                m1.metric("Total Aberto", kpis['total'])
-                delta_txt = "⚠️ Alerta" if kpis['sem_tec'] > 0 else "Ok"
-                m2.metric("Sem Técnico", kpis['sem_tec'], delta=delta_txt, delta_color="inverse")
-
-                st.subheader("SLA")
-                s1, s2, s3 = st.columns(3, gap="medium")
-                s1.metric("Crítico (>24h)", kpis['sla_red'])
-                s2.metric("Fora do Prazo (8-24h)", kpis['sla_yellow'])
-                s3.metric("No Prazo (<8h)", kpis['sla_green'])
-
-                if contrato_selecionado == 'ABILITY_SJ':
-                    st.subheader("Região")
-                    r1, r2 = st.columns(2, gap="medium")
-                    r1.metric("Litoral", kpis['lit'])
-                    r2.metric("Vale", kpis['vale'])
-
-                st.divider()
-
-                col_f1, col_f2 = st.columns(2)
-                if contrato_selecionado == 'ABILITY_SJ':
-                    f_area = col_f1.multiselect("Filtrar Área", df['Area'].unique(), placeholder="Selecione...")
+            # --- ABA 1: OPERACIONAL ---
+            with tab_op:
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("<p class='contrato-label'>Selecione o Contrato:</p>", unsafe_allow_html=True)
+                contrato_selecionado = st.radio("Selecione:", opcoes_validas, horizontal=True, label_visibility="collapsed")
+                
+                df = processar_regras_generico(df_raw, filtrar_contrato=contrato_selecionado)
+                
+                if df.empty:
+                    st.warning(f"Nenhum dado encontrado para {contrato_selecionado}.")
                 else:
-                    col_f1.info("Filtro de região indisponível.")
-                    f_area = []
-                f_sla = col_f2.multiselect("Filtrar SLA", ["Crítico", "Atenção", "No Prazo"], placeholder="Selecione...")
+                    kpis = {
+                        'total': len(df), 'sem_tec': len(df[df['Técnicos']==0]),
+                        'sla_red': len(df[df['horas_float']>24]), 
+                        'sla_yellow': len(df[(df['horas_float']>8)&(df['horas_float']<=24)]),
+                        'sla_green': len(df[df['horas_float']<=8]),
+                        'lit': len(df[df['Area']=="Litoral"]), 'vale': len(df[df['Area']=="Vale"])
+                    }
 
-                df_show = df.copy()
-                if f_area: df_show = df_show[df_show['Area'].isin(f_area)]
-                if f_sla: df_show = df_show[df_show['Status SLA'].isin(f_sla)]
-                if 'AT' in df_show.columns: df_show['AT'] = df_show['AT'].astype(str).str[:2]
+                    c1, c2 = st.columns(2)
+                    nome_arq = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%H%M')
+                    try:
+                        img_cards = gerar_cards_mpl(kpis, contrato_selecionado)
+                        c1.download_button("📸 Baixar Resumo (Cards)", img_cards, f"Resumo_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                    except Exception as e: st.error(f"Erro imagem: {e}")
 
-                cols_exist = [c for c in ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'Técnicos', 'horas_float'] if c in df_show.columns]
-                styler = df_show[cols_exist].style.apply(row_style_apply, axis=1).set_properties(**{'font-size': '16px', 'font-weight': '600'})
-                st.dataframe(styler, height=600, use_container_width=True,
-                             column_config={"Ocorrência": st.column_config.TextColumn("ID", width="medium"), "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"), "horas_float": None})
+                    df_gv = df[df['Afetação'] >= 100].copy()
+                    if not df_gv.empty:
+                        st.markdown("---")
+                        st.error(f"🚨 **GRANDE VULTO IDENTIFICADO ({len(df_gv)})**")
+                        with st.expander("Ver Carimbos Grande Vulto", expanded=True):
+                            for idx, row in df_gv.iterrows():
+                                texto_pronto = gerar_texto_gv(row, contrato_selecionado)
+                                st.code(texto_pronto, language="text")
+                                try:
+                                    img_carimbo = gerar_imagem_carimbo_mpl(texto_pronto)
+                                    st.download_button(f"📸 Baixar Carimbo - {row['Ocorrência']}", img_carimbo, f"Carimbo_{row['Ocorrência']}.jpg", "image/jpeg", key=f"gv_{idx}")
+                                except: pass
+                                st.divider()
+                    st.divider()
 
-                # --- BOTÕES DE DOWNLOAD MÚLTIPLOS (SEM ZIP) ---
-                try:
-                    cols_exp = [c for c in cols_exist if c != 'horas_float']
+                    st.subheader("Visão Geral")
+                    m1, m2 = st.columns(2, gap="medium")
+                    m1.metric("Total Aberto", kpis['total'])
+                    delta_txt = "⚠️ Alerta" if kpis['sem_tec'] > 0 else "Ok"
+                    m2.metric("Sem Técnico", kpis['sem_tec'], delta=delta_txt, delta_color="inverse")
 
-                    # Função agora retorna uma LISTA de imagens
-                    lista_imagens = gerar_lista_mpl_from_view(df_show, cols_exp, contrato_selecionado)
+                    st.subheader("SLA")
+                    s1, s2, s3 = st.columns(3, gap="medium")
+                    s1.metric("Crítico (>24h)", kpis['sla_red'])
+                    s2.metric("Fora do Prazo (8-24h)", kpis['sla_yellow'])
+                    s3.metric("No Prazo (<8h)", kpis['sla_green'])
 
-                    # Gera um botão para cada imagem
-                    if len(lista_imagens) == 1:
-                        c2.download_button("📄 Baixar Lista", lista_imagens[0], f"Lista_{nome}.jpg", "image/jpeg", use_container_width=True)
+                    if contrato_selecionado == 'ABILITY_SJ':
+                        st.subheader("Região")
+                        r1, r2 = st.columns(2, gap="medium")
+                        r1.metric("Litoral", kpis['lit'])
+                        r2.metric("Vale", kpis['vale'])
+
+                    st.divider()
+
+                    col_f1, col_f2 = st.columns(2)
+                    if contrato_selecionado == 'ABILITY_SJ':
+                        f_area = col_f1.multiselect("Filtrar Área", df['Area'].unique(), placeholder="Selecione...")
                     else:
-                        st.caption("Lista extensa dividida em partes:")
-                        for idx_img, img_data in enumerate(lista_imagens):
-                            label_botao = f"📄 Baixar Lista (Parte {idx_img + 1})"
-                            nome_arquivo = f"Lista_{nome}_Parte_{idx_img + 1}.jpg"
-                            c2.download_button(label_botao, img_data, nome_arquivo, "image/jpeg", use_container_width=True)
+                        col_f1.info("Filtro de região indisponível.")
+                        f_area = []
+                    f_sla = col_f2.multiselect("Filtrar SLA", ["Crítico", "Atenção", "No Prazo"], placeholder="Selecione...")
 
-                except Exception as e:
-                    st.error(f"Erro ao gerar lista: {e}")
+                    df_show = df.copy()
+                    if f_area: df_show = df_show[df_show['Area'].isin(f_area)]
+                    if f_sla: df_show = df_show[df_show['Status SLA'].isin(f_sla)]
+                    if 'AT' in df_show.columns: df_show['AT'] = df_show['AT'].astype(str).str[:2]
+
+                    cols_exist = [c for c in ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'Técnicos', 'horas_float'] if c in df_show.columns]
+                    styler = df_show[cols_exist].style.apply(row_style_apply, axis=1).set_properties(**{'font-size': '16px', 'font-weight': '600'})
+                    st.dataframe(styler, height=600, use_container_width=True, 
+                                 column_config={"Ocorrência": st.column_config.TextColumn("ID", width="medium"), "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"), "horas_float": None})
+
+                    try:
+                        cols_exp = [c for c in cols_exist if c != 'horas_float']
+                        lista_imagens = gerar_lista_mpl_from_view(df_show, cols_exp, contrato_selecionado)
+                        if len(lista_imagens) == 1:
+                            c2.download_button("📄 Baixar Lista", lista_imagens[0], f"Lista_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                        else:
+                            st.caption("Lista extensa dividida em partes:")
+                            for idx_img, img_data in enumerate(lista_imagens):
+                                lbl = f"📄 Baixar Lista (Parte {idx_img + 1})"
+                                nm = f"Lista_{nome_arq}_Parte_{idx_img + 1}.jpg"
+                                c2.download_button(lbl, img_data, nm, "image/jpeg", use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Erro lista: {e}")
+
+            # --- ABA 2: CLUSTER ---
+            with tab_ger:
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.header("Painel Consolidado SPI")
+                
+                df_geral = processar_regras_generico(df_raw, contratos_validos=opcoes_validas)
+                
+                if not df_geral.empty:
+                    total_geral = len(df_geral)
+                    total_gv = len(df_geral[df_geral['Afetação'] >= 100])
+                    # REGRA: Fora do Prazo >= 8h
+                    total_fora = len(df_geral[df_geral['horas_float'] >= 8]) 
+                    total_dentro = total_geral - total_fora
+
+                    # Métricas Topo
+                    g1, g2 = st.columns(2)
+                    g1.metric("Total de Casos", total_geral)
+                    g2.metric("Grandes Vultos (>100)", total_gv, delta="Atenção" if total_gv > 0 else "Normal", delta_color="inverse")
+                    
+                    g3, g4 = st.columns(2)
+                    g3.metric("Dentro do Prazo (<8h)", total_dentro)
+                    g4.metric("Fora do Prazo (>=8h)", total_fora, delta="Crítico" if total_fora > 0 else "Ok", delta_color="inverse")
+                    
+                    st.divider()
+                    
+                    # Botão Gigante de Download do Dashboard
+                    try:
+                        img_dashboard = gerar_dashboard_gerencial(df_geral, opcoes_validas)
+                        st.download_button(
+                            label="📸 BAIXAR DASHBOARD CLUSTER (IMAGEM)",
+                            data=img_dashboard,
+                            file_name=f"Dashboard_Cluster_{nome_arq}.jpg",
+                            mime="image/jpeg",
+                            use_container_width=True,
+                            type="primary" 
+                        )
+                    except Exception as e:
+                        st.error(f"Erro ao gerar dashboard: {e}")
+
+                    st.divider()
+
+                    # Tabela Detalhada com Fonte Maior
+                    st.subheader("Detalhamento por Contrato")
+                    resumo = df_geral.groupby('Contrato_Padrao').agg(
+                        Total=('Ocorrência', 'count'),
+                        Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()),
+                        Fora_do_Prazo=('horas_float', lambda x: (x >= 8).sum()),
+                        Criticos=('horas_float', lambda x: (x > 24).sum()) # ADICIONADO COLUNA
+                    ).reset_index().sort_values('Total', ascending=False)
+                    
+                    styler_resumo = resumo.style.set_properties(**{'font-size': '18px', 'height': '40px'})
+                    
+                    st.dataframe(
+                        styler_resumo, 
+                        use_container_width=True, 
+                        hide_index=True,
+                        column_config={
+                            "Contrato_Padrao": st.column_config.TextColumn("Contrato"),
+                            "Grandes_Vultos": st.column_config.NumberColumn("GV (>100)", format="%d 🚨"),
+                            "Fora_do_Prazo": st.column_config.NumberColumn("Fora do Prazo (>=8h)", format="%d ⚠️"),
+                            "Criticos": st.column_config.NumberColumn("Críticos (>24h)", format="%d 🛑")
+                        }
+                    )
+                    
+                else:
+                    st.info("Nenhum dado encontrado nos contratos monitorados.")
+
     else:
-        st.error("Coluna 'Contrato' não encontrada.")
+        st.error("Colunas de Contrato não encontradas.")
 else:
-    st.info("Carregue a base geral para iniciar.")
+    st.info("Aguardando upload do arquivo...")
