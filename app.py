@@ -496,7 +496,7 @@ if df_raw is not None and not df_raw.empty:
                 st.subheader("SLA")
                 s1, s2, s3 = st.columns(3, gap="medium")
                 s1.metric("Crítico (>24h)", kpis['sla_red'])
-                s2.metric("Atenção (8-24h)", kpis['sla_yellow'])
+                s2.metric("Fora do Prazo (8-24h)", kpis['sla_yellow'])
                 s3.metric("No Prazo (<8h)", kpis['sla_green'])
 
                 if contrato_selecionado == 'ABILITY_SJ':
