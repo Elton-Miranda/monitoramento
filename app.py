@@ -69,11 +69,11 @@ st.markdown("""
     [data-testid="stFileUploader"] button[kind="secondary"] {
         color: transparent !important; 
         position: relative;
-        width: 190px !important; /* Largura ajustada para caber o texto */
+        width: 190px !important; 
     }
     
     [data-testid="stFileUploader"] button[kind="secondary"]::after {
-        content: "Inserir Arquivo"; /* Texto Solicitado */
+        content: "Inserir Arquivo"; 
         color: #333;
         font-weight: 700;
         font-size: 16px;
@@ -88,7 +88,7 @@ st.markdown("""
     /* Texto de instrução "Insira a Base Sigma" */
     [data-testid="stFileUploaderDropzoneInstructions"] { display: none; }
     [data-testid="stFileUploaderDropzone"]::before {
-        content: "📂 Insira a Base Sigma"; /* Texto Solicitado */
+        content: "📂 Insira a Base Sigma"; 
         display: block; text-align: center; font-weight: 800; font-size: 1.2rem; color: #333; margin-top: 10px;
     }
 
@@ -330,20 +330,6 @@ DEFEITO:
 PRAZO:"""
     return texto
 
-def gerar_imagem_carimbo_mpl(texto):
-    num_linhas = len(texto.split('\n'))
-    h_fig = 4 + (num_linhas * 0.4)
-    fig, ax = plt.subplots(figsize=(10, h_fig), dpi=200)
-    fig.patch.set_facecolor('white')
-    ax.axis('off')
-    texto_limpo = texto.replace('*', '')
-    ax.text(0.05, 0.95, texto_limpo, ha='left', va='top', fontsize=18, family='monospace', color='#333333', linespacing=1.5, transform=ax.transAxes)
-    rect = patches.Rectangle((0, 0), 1, 1, transform=ax.transAxes, linewidth=4, edgecolor='#660099', facecolor='none')
-    ax.add_patch(rect)
-    buf = io.BytesIO()
-    plt.savefig(buf, format='jpg', dpi=200, bbox_inches='tight', facecolor='white')
-    plt.close(fig); return buf.getvalue()
-
 def gerar_cards_mpl(kpis, contrato):
     C_BG, C_BORDER = "#ffffff", "#dddddd"
     C_TEXT, C_LABEL, C_RED, C_YELLOW, C_GREEN = "#222222", "#555555", "#d32f2f", "#f57c00", "#2e7d32"
@@ -576,11 +562,9 @@ if df_raw is not None and not df_raw.empty:
                         with st.expander("Ver Carimbos Grande Vulto", expanded=True):
                             for idx, row in df_gv.iterrows():
                                 texto_pronto = gerar_texto_gv(row, contrato_selecionado)
+                                st.markdown(f"**Ocorrência: {row['Ocorrência']}**")
                                 st.code(texto_pronto, language="text")
-                                try:
-                                    img_carimbo = gerar_imagem_carimbo_mpl(texto_pronto)
-                                    st.download_button(f"📸 Baixar Carimbo - {row['Ocorrência']}", img_carimbo, f"Carimbo_{row['Ocorrência']}.jpg", "image/jpeg", key=f"gv_{idx}")
-                                except: pass
+                                st.caption("👆 Clique no ícone de copiar no canto superior direito do bloco.")
                                 st.divider()
                     st.divider()
 
@@ -639,7 +623,7 @@ if df_raw is not None and not df_raw.empty:
             # --- ABA 2: CLUSTER ---
             with tab_ger:
                 st.markdown("<br>", unsafe_allow_html=True)
-                st.header("Painel Consolidado SPI")
+                st.header("📊 Painel Executivo Consolidado")
                 
                 df_geral = processar_regras_generico(df_raw, contratos_validos=opcoes_validas)
                 
