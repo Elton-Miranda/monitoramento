@@ -10,7 +10,7 @@ import matplotlib.patches as patches
 # --- Configuração da Página ---
 st.set_page_config(page_title="Monitoramento Operacional", page_icon="📡", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CSS VISUAL ---
+# --- CSS VISUAL (MOBILE FIRST) ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
@@ -20,41 +20,64 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: #fff; border-radius: 4px 4px 0 0; border: 1px solid #ddd; color: #666; }
     .stTabs [aria-selected="true"] { background-color: #f3e5f5; color: #660099; border-color: #660099; border-bottom: none; font-weight: bold; }
 
-    /* BOTÕES DE CONTRATO (CORRIGIDO PARA NÃO QUEBRAR LINHA) */
+    /* --- CORREÇÃO DEFINITIVA PARA BOTÕES NO MOBILE --- */
+    
+    /* Esconde o radio button original */
     div[role="radiogroup"] label > div:first-child { display: none !important; }
+    
+    /* Container (A trilha dos botões) */
     div[role="radiogroup"] { 
         display: flex; 
         flex-direction: row; 
-        flex-wrap: nowrap; 
-        overflow-x: auto; 
+        flex-wrap: nowrap !important; /* PROIBIDO QUEBRAR PARA LINHA DE BAIXO */
+        overflow-x: auto; /* Permite rolar para o lado */
         width: 100%; 
-        gap: 15px; 
-        padding-bottom: 10px; 
+        gap: 12px; 
+        padding: 10px 5px; 
+        -webkit-overflow-scrolling: touch; /* Rolagem suave no iPhone/Android */
+        scrollbar-width: none; /* Esconde barra de rolagem (Firefox) */
     }
+    
+    /* Esconde barra de rolagem (Chrome/Safari) */
+    div[role="radiogroup"]::-webkit-scrollbar { display: none; }
+
+    /* O Botão (Cada retângulo) */
     div[role="radiogroup"] label {
+        flex: 0 0 auto; /* CRUCIAL: Impede o botão de encolher no mobile */
         background-color: white !important; 
-        border: 3px solid #660099 !important; 
-        border-radius: 12px !important;
-        padding: 15px 20px !important; /* Aumentei o padding lateral */
-        min-width: 140px !important;
-        white-space: nowrap !important; /* <--- O SEGREDO: PROÍBE QUEBRA DE LINHA */
+        border: 2px solid #660099 !important; 
+        border-radius: 10px !important;
+        padding: 12px 20px !important;
+        min-width: 140px !important; /* Largura mínima garantida */
         display: flex !important; 
         justify-content: center !important; 
         align-items: center !important; 
         text-align: center !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; 
-        transition: 0.3s !important; 
+        box-shadow: 0 3px 5px rgba(0,0,0,0.1) !important; 
+        transition: 0.2s !important; 
         cursor: pointer !important;
     }
+
+    /* O Texto dentro do botão */
     div[role="radiogroup"] label p { 
-        font-size: 18px !important; 
-        font-weight: 900 !important; 
+        font-size: 16px !important; 
+        font-weight: 800 !important; 
         margin: 0 !important; 
         color: #660099 !important; 
-        width: 100%; 
+        width: 100%;
+        white-space: nowrap !important; /* CRUCIAL: Texto nunca quebra linha */
+        line-height: 1 !important;
     }
-    div[role="radiogroup"] label:has(input:checked) { background-color: #660099 !important; transform: translateY(-2px); }
+
+    /* Estado Selecionado */
+    div[role="radiogroup"] label:has(input:checked) { 
+        background-color: #660099 !important; 
+        transform: translateY(-2px); 
+        box-shadow: 0 5px 10px rgba(102, 0, 153, 0.3) !important;
+    }
     div[role="radiogroup"] label:has(input:checked) p { color: #ffffff !important; }
+
+    /* ------------------------------------------------ */
 
     /* GERAL */
     div.stButton > button { background-color: white; color: #660099; border: 2px solid #660099; border-radius: 8px; font-weight: 700; width: 100%; transition: 0.3s; }
@@ -81,11 +104,9 @@ ARQUIVO_CNL_XLSX = "CNL_BASE_MONITORAMENTO.xlsx"
 
 # --- CARREGAMENTO DE SEGREDOS ---
 try:
-    # Carrega a URL e os HEADERS direto do secrets.toml
     API_URL = st.secrets["api"]["url"]
     API_HEADERS = dict(st.secrets["api"]["headers"])
 except Exception:
-    # Se não configurado, deixa vazio para tratar na função de carga
     API_URL = ""
     API_HEADERS = {}
 
@@ -114,7 +135,6 @@ def carregar_dados_api():
         return None, "Configuração de API não encontrada no secrets.toml."
     
     try:
-        # AQUI O CÓDIGO USA O NOVO HEADER (X-API-Key) AUTOMATICAMENTE
         response = requests.get(API_URL, headers=API_HEADERS, timeout=25)
         
         if response.status_code == 200:
@@ -126,7 +146,6 @@ def carregar_dados_api():
             if 'ocorrencias' in json_data:
                 df = pd.DataFrame(json_data['ocorrencias'])
                 
-                # Mapeamento
                 rename_map = {
                     'ocorrencia': 'Ocorrência', 'data_abertura': 'Data Abertura', 'contrato': 'Contrato',
                     'escritorio': 'Escritório', 'cnl': 'CNL', 'at': 'AT', 'cabo': 'Cabo',
@@ -136,7 +155,6 @@ def carregar_dados_api():
                 }
                 df.rename(columns=rename_map, inplace=True)
                 
-                # Técnicos e Datas
                 if 'tecnicos' in json_data['ocorrencias'][0]:
                     df['Técnicos'] = df['tecnicos'].apply(lambda x: len(x) if isinstance(x, list) else 0)
                 else:
@@ -148,9 +166,9 @@ def carregar_dados_api():
                 return None, "JSON inválido: Chave 'ocorrencias' não encontrada."
         
         elif response.status_code == 403:
-            return None, "Erro 403: Acesso Negado. Verifique se a X-API-Key no secrets.toml está correta."
+            return None, "Erro 403: Acesso Negado. Verifique a API Key."
         elif response.status_code == 401:
-            return None, "Erro 401: Não Autorizado. API Key inválida."
+            return None, "Erro 401: Não Autorizado."
         else:
             return None, f"Erro na API: Status {response.status_code}"
             
