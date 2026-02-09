@@ -14,22 +14,45 @@ st.set_page_config(page_title="Monitoramento Operacional", page_icon="📡", lay
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
-
+    
     /* ABAS */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: #fff; border-radius: 4px 4px 0 0; border: 1px solid #ddd; color: #666; }
     .stTabs [aria-selected="true"] { background-color: #f3e5f5; color: #660099; border-color: #660099; border-bottom: none; font-weight: bold; }
 
-    /* BOTÕES DE CONTRATO */
+    /* BOTÕES DE CONTRATO (CORRIGIDO PARA NÃO QUEBRAR LINHA) */
     div[role="radiogroup"] label > div:first-child { display: none !important; }
-    div[role="radiogroup"] { display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; width: 100%; gap: 15px; padding-bottom: 10px; }
-    div[role="radiogroup"] label {
-        background-color: white !important; border: 3px solid #660099 !important; border-radius: 12px !important;
-        padding: 15px 10px !important; min-width: 140px !important;
-        display: flex !important; justify-content: center !important; align-items: center !important; text-align: center !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; transition: 0.3s !important; cursor: pointer !important;
+    div[role="radiogroup"] { 
+        display: flex; 
+        flex-direction: row; 
+        flex-wrap: nowrap; 
+        overflow-x: auto; 
+        width: 100%; 
+        gap: 15px; 
+        padding-bottom: 10px; 
     }
-    div[role="radiogroup"] label p { font-size: 18px !important; font-weight: 900 !important; margin: 0 !important; color: #660099 !important; width: 100%; }
+    div[role="radiogroup"] label {
+        background-color: white !important; 
+        border: 3px solid #660099 !important; 
+        border-radius: 12px !important;
+        padding: 15px 20px !important; /* Aumentei o padding lateral */
+        min-width: 140px !important;
+        white-space: nowrap !important; /* <--- O SEGREDO: PROÍBE QUEBRA DE LINHA */
+        display: flex !important; 
+        justify-content: center !important; 
+        align-items: center !important; 
+        text-align: center !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; 
+        transition: 0.3s !important; 
+        cursor: pointer !important;
+    }
+    div[role="radiogroup"] label p { 
+        font-size: 18px !important; 
+        font-weight: 900 !important; 
+        margin: 0 !important; 
+        color: #660099 !important; 
+        width: 100%; 
+    }
     div[role="radiogroup"] label:has(input:checked) { background-color: #660099 !important; transform: translateY(-2px); }
     div[role="radiogroup"] label:has(input:checked) p { color: #ffffff !important; }
 
@@ -38,13 +61,13 @@ st.markdown("""
     div.stButton > button:hover { background-color: #660099; color: white; border-color: #660099; }
     [data-testid="stDownloadButton"] > button { background-color: #660099 !important; color: white !important; border: none !important; font-size: 18px !important; padding: 15px !important; }
     [data-testid="stDownloadButton"] > button:hover { background-color: #4b007d !important; }
-
+    
     /* METRICAS */
     div[data-testid="stMetric"] { background-color: white; border: 2px solid #e0e0e0; padding: 10px; border-radius: 12px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.08); min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     div[data-testid="stMetricLabel"] { width: 100%; display: flex; justify-content: center; font-size: 1.1rem !important; font-weight: 800 !important; color: #444; }
     div[data-testid="stMetricValue"] { width: 100%; display: flex; justify-content: center; font-size: 2.5rem !important; font-weight: 900 !important; color: #000; }
     [data-testid="stMetricDelta"] { justify-content: center; font-weight: 700; }
-
+    
     .status-box { padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; text-align: center; border: 1px solid #ccc; }
     .status-ok { background-color: #e8f5e9; color: #2e7d32; border-color: #c8e6c9; }
     .status-error { background-color: #ffebee; color: #c62828; border-color: #ffcdd2; font-size: 0.9em;}
@@ -89,11 +112,11 @@ def carregar_base_cnl():
 def carregar_dados_api():
     if not API_URL:
         return None, "Configuração de API não encontrada no secrets.toml."
-
+    
     try:
         # AQUI O CÓDIGO USA O NOVO HEADER (X-API-Key) AUTOMATICAMENTE
         response = requests.get(API_URL, headers=API_HEADERS, timeout=25)
-
+        
         if response.status_code == 200:
             try:
                 json_data = response.json()
@@ -102,7 +125,7 @@ def carregar_dados_api():
 
             if 'ocorrencias' in json_data:
                 df = pd.DataFrame(json_data['ocorrencias'])
-
+                
                 # Mapeamento
                 rename_map = {
                     'ocorrencia': 'Ocorrência', 'data_abertura': 'Data Abertura', 'contrato': 'Contrato',
@@ -112,7 +135,7 @@ def carregar_dados_api():
                     'vip': 'VIP', 'b2b_avancado': 'B2B', 'cond_alto_valor': 'Cond. Alto Valor'
                 }
                 df.rename(columns=rename_map, inplace=True)
-
+                
                 # Técnicos e Datas
                 if 'tecnicos' in json_data['ocorrencias'][0]:
                     df['Técnicos'] = df['tecnicos'].apply(lambda x: len(x) if isinstance(x, list) else 0)
@@ -123,14 +146,14 @@ def carregar_dados_api():
                 return df, None
             else:
                 return None, "JSON inválido: Chave 'ocorrencias' não encontrada."
-
+        
         elif response.status_code == 403:
             return None, "Erro 403: Acesso Negado. Verifique se a X-API-Key no secrets.toml está correta."
         elif response.status_code == 401:
             return None, "Erro 401: Não Autorizado. API Key inválida."
         else:
             return None, f"Erro na API: Status {response.status_code}"
-
+            
     except Exception as e:
         return None, f"Falha na conexão: {str(e)}"
 
@@ -166,10 +189,10 @@ def processar_regras_generico(df_full, contratos_validos=None, filtrar_contrato=
 
     df = df.dropna(subset=['Abertura_dt'])
     df['Abertura_dt'] = df['Abertura_dt'].dt.tz_localize(None)
-
+    
     df['diff_segundos'] = (agora - df['Abertura_dt']).dt.total_seconds()
     df['horas_float'] = df['diff_segundos'] / 3600
-
+    
     def formatar_hhmmss(s):
         if s < 0: return "00:00:00"
         m, s = divmod(int(s), 60); h, m = divmod(m, 60); return f"{h:02d}:{m:02d}:{s:02d}"
@@ -269,7 +292,7 @@ def gerar_cards_mpl(kpis, contrato):
     C_TEXT, C_LABEL, C_RED, C_YELLOW, C_GREEN = "#222222", "#555555", "#d32f2f", "#f57c00", "#2e7d32"
     tem_regiao = (contrato == 'ABILITY_SJ')
     h_total = 14 if tem_regiao else 11
-    fig, ax = plt.subplots(figsize=(12, h_total), dpi=200)
+    fig, ax = plt.subplots(figsize=(12, h_total), dpi=200) 
     fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
 
     def draw_card_mobile(x, y, w, h, title, value, val_color=C_TEXT, alert=False):
@@ -302,10 +325,10 @@ def gerar_cards_mpl(kpis, contrato):
 def gerar_dashboard_gerencial(df_geral, contratos_list):
     C_BG, C_BAR, C_RED, C_GREEN = "#ffffff", "#660099", "#d32f2f", "#2e7d32"
     df_filtrado = df_geral[df_geral['Contrato_Padrao'].isin(contratos_list)].copy()
-
+    
     total_geral = len(df_filtrado)
     total_gv = len(df_filtrado[df_filtrado['Afetação'] >= 100])
-    total_fora = len(df_filtrado[df_filtrado['horas_float'] >= 8])
+    total_fora = len(df_filtrado[df_filtrado['horas_float'] >= 8]) 
     total_dentro = total_geral - total_fora
 
     resumo = df_filtrado.groupby('Contrato_Padrao').agg(
@@ -313,7 +336,7 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
         Fora_Prazo=('horas_float', lambda x: (x >= 8).sum()), Criticos=('horas_float', lambda x: (x > 24).sum())
     ).reset_index().sort_values('Total', ascending=False)
 
-    fig, ax = plt.subplots(figsize=(14, 12), dpi=200)
+    fig, ax = plt.subplots(figsize=(14, 12), dpi=200) 
     fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
 
     hora = (datetime.now() - timedelta(hours=3)).strftime("%d/%m %H:%M")
@@ -340,14 +363,14 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
     ax.text(50, y_start, "DETALHAMENTO POR CONTRATO", ha='center', fontsize=18, weight='bold', color='#333')
     colunas = ["CONTRATO", "TOTAL", "G. VULTO", "FORA PRAZO", "CRÍTICO >24H"]
     dados_tabela = [[row['Contrato_Padrao'], str(row['Total']), str(row['Grandes_Vultos']), str(row['Fora_Prazo']), str(row['Criticos'])] for _, row in resumo.iterrows()]
-
+    
     tbl = ax.table(cellText=dados_tabela, colLabels=colunas, loc='center', bbox=[0.05, 0.05, 0.9, 0.45])
-    tbl.auto_set_font_size(False); tbl.set_fontsize(13); tbl.scale(1, 2)
+    tbl.auto_set_font_size(False); tbl.set_fontsize(13); tbl.scale(1, 2) 
     for (i, j), cell in tbl.get_celld().items():
         if i == 0:
             cell.set_text_props(weight='bold', color='white'); cell.set_facecolor('#660099'); cell.set_edgecolor('white')
         else:
-            cell.set_edgecolor('#dddddd'); cell.set_text_props(weight='bold');
+            cell.set_edgecolor('#dddddd'); cell.set_text_props(weight='bold'); 
             if i % 2 == 0: cell.set_facecolor('#f9f9f9')
 
     ax.text(50, 2, "Gerado via Painel de Controle", ha='center', fontsize=12, color="#999")
@@ -411,7 +434,7 @@ else:
         todos_contratos = df_raw[col_contrato_raw[0]].astype(str).str.strip().str.upper().unique()
         contratos_principais = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_PC_SC", "TELEMONT"]
         opcoes_validas = [c for c in contratos_principais if c in todos_contratos]
-
+        
         if not opcoes_validas:
             st.warning("Nenhum contrato conhecido encontrado.")
         else:
@@ -422,13 +445,13 @@ else:
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.markdown("<p class='contrato-label'>Selecione o Contrato:</p>", unsafe_allow_html=True)
                 contrato_selecionado = st.radio("Selecione:", opcoes_validas, horizontal=True, label_visibility="collapsed")
-
+                
                 df = processar_regras_generico(df_raw, filtrar_contrato=contrato_selecionado)
-
+                
                 if df.empty:
                     st.warning(f"Nenhum dado encontrado para {contrato_selecionado}.")
                 else:
-                    kpis = { 'total': len(df), 'sem_tec': len(df[df['Técnicos']==0]), 'sla_red': len(df[df['horas_float']>24]),
+                    kpis = { 'total': len(df), 'sem_tec': len(df[df['Técnicos']==0]), 'sla_red': len(df[df['horas_float']>24]), 
                              'sla_yellow': len(df[(df['horas_float']>8)&(df['horas_float']<=24)]), 'sla_green': len(df[df['horas_float']<=8]),
                              'lit': len(df[df['Area']=="Litoral"]), 'vale': len(df[df['Area']=="Vale"]) }
 
@@ -506,7 +529,7 @@ else:
 
                     g1, g2 = st.columns(2); g1.metric("Total de Casos", total_geral); g2.metric("Grandes Vultos (>100)", total_gv, delta="Atenção" if total_gv > 0 else "Normal", delta_color="inverse")
                     g3, g4 = st.columns(2); g3.metric("Dentro do Prazo (<8h)", total_dentro); g4.metric("Fora do Prazo (>=8h)", total_fora, delta="Crítico" if total_fora > 0 else "Ok", delta_color="inverse")
-
+                    
                     st.divider()
                     try:
                         img_dashboard = gerar_dashboard_gerencial(df_geral, opcoes_validas)
