@@ -1,8 +1,25 @@
+import os
+import time
+
+# ==============================================================================
+# 🌍 CONFIGURAÇÃO DE FUSO HORÁRIO (O TRUQUE DO LINUX)
+# ==============================================================================
+# Define a variável de ambiente para o servidor Linux (Streamlit Cloud)
+os.environ['TZ'] = 'America/Sao_Paulo'
+try:
+    # Aplica a mudança de fuso imediatamente
+    time.tzset()
+except AttributeError:
+    # O Windows não suporta tzset(), então ignoramos isso no Localhost.
+    pass
+
+# ==============================================================================
+# 📦 IMPORTS E CÓDIGO
+# ==============================================================================
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import io
-import os
 import requests
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -20,7 +37,7 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: #fff; border-radius: 4px 4px 0 0; border: 1px solid #ddd; color: #666; }
     .stTabs [aria-selected="true"] { background-color: #f3e5f5; color: #660099; border-color: #660099; border-bottom: none; font-weight: bold; }
 
-    /* BOTÕES DE CONTRATO (CORRIGIDO PARA NÃO QUEBRAR LINHA) */
+    /* BOTÕES DE CONTRATO */
     div[role="radiogroup"] label > div:first-child { display: none !important; }
     div[role="radiogroup"] {
         display: flex;
@@ -35,9 +52,9 @@ st.markdown("""
         background-color: white !important;
         border: 3px solid #660099 !important;
         border-radius: 12px !important;
-        padding: 15px 20px !important; /* Aumentei o padding lateral */
+        padding: 15px 20px !important;
         min-width: 140px !important;
-        white-space: nowrap !important; /* <--- O SEGREDO: PROÍBE QUEBRA DE LINHA */
+        white-space: nowrap !important;
         display: flex !important;
         justify-content: center !important;
         align-items: center !important;
@@ -81,11 +98,9 @@ ARQUIVO_CNL_XLSX = "CNL_BASE_MONITORAMENTO.xlsx"
 
 # --- CARREGAMENTO DE SEGREDOS ---
 try:
-    # Carrega a URL e os HEADERS direto do secrets.toml
     API_URL = st.secrets["api"]["url"]
     API_HEADERS = dict(st.secrets["api"]["headers"])
 except Exception:
-    # Se não configurado, deixa vazio para tratar na função de carga
     API_URL = ""
     API_HEADERS = {}
 
@@ -114,7 +129,6 @@ def carregar_dados_api():
         return None, "Configuração de API não encontrada no secrets.toml."
 
     try:
-        # AQUI O CÓDIGO USA O NOVO HEADER (X-API-Key) AUTOMATICAMENTE
         response = requests.get(API_URL, headers=API_HEADERS, timeout=25)
 
         if response.status_code == 200:
@@ -126,7 +140,6 @@ def carregar_dados_api():
             if 'ocorrencias' in json_data:
                 df = pd.DataFrame(json_data['ocorrencias'])
 
-                # Mapeamento
                 rename_map = {
                     'ocorrencia': 'Ocorrência', 'data_abertura': 'Data Abertura', 'contrato': 'Contrato',
                     'escritorio': 'Escritório', 'cnl': 'CNL', 'at': 'AT', 'cabo': 'Cabo',
@@ -136,7 +149,6 @@ def carregar_dados_api():
                 }
                 df.rename(columns=rename_map, inplace=True)
 
-                # Técnicos e Datas
                 if 'tecnicos' in json_data['ocorrencias'][0]:
                     df['Técnicos'] = df['tecnicos'].apply(lambda x: len(x) if isinstance(x, list) else 0)
                 else:
@@ -158,7 +170,9 @@ def carregar_dados_api():
         return None, f"Falha na conexão: {str(e)}"
 
 def processar_regras_generico(df_full, contratos_validos=None, filtrar_contrato=None):
+    # COMO FORÇAMOS O FUSO NO INÍCIO DO CÓDIGO, AGORA datetime.now() JÁ É BRASIL
     agora = datetime.now()
+    
     cols_map = {str(c).lower().strip(): c for c in df_full.columns}
 
     df_cnl = carregar_base_cnl()
@@ -188,6 +202,8 @@ def processar_regras_generico(df_full, contratos_validos=None, filtrar_contrato=
         df['Abertura_dt'] = df[col_abertura]
 
     df = df.dropna(subset=['Abertura_dt'])
+    
+    # Remove qualquer fuso que possa ter vindo da API para fazer conta "seca"
     df['Abertura_dt'] = df['Abertura_dt'].dt.tz_localize(None)
 
     df['diff_segundos'] = (agora - df['Abertura_dt']).dt.total_seconds()
@@ -305,7 +321,10 @@ def gerar_cards_mpl(kpis, contrato):
             ax.text(x + w - 4, y + h - 4, "!", color="white", fontsize=20, weight='bold', ha='center', va='center', zorder=5)
 
     ax.text(50, 96, "MONITORAMENTO", ha='center', fontsize=32, weight='black', color='#333')
-    hora = (datetime.now() - timedelta(hours=3)).strftime("%H:%M")
+    
+    # COMO FORÇAMOS O TZ, AGORA PODEMOS USAR DATETIME.NOW() DIRETO
+    hora = (datetime.now()).strftime("%H:%M")
+    
     ax.text(50, 92, f"{contrato} • {hora}", ha='center', fontsize=22, weight='bold', color='#660099')
 
     y1 = 68; draw_card_mobile(2, y1, 46, 18, "Total", kpis['total'])
@@ -339,7 +358,9 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
     fig, ax = plt.subplots(figsize=(14, 12), dpi=200)
     fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
 
-    hora = (datetime.now() - timedelta(hours=3)).strftime("%d/%m %H:%M")
+    # COMO FORÇAMOS O TZ, AGORA PODEMOS USAR DATETIME.NOW() DIRETO
+    hora = (datetime.now()).strftime("%d/%m %H:%M")
+    
     ax.text(50, 96, "VISÃO CLUSTER", ha='center', fontsize=32, weight='black', color='#333')
     ax.text(50, 92, f"Consolidado Geral • {hora}", ha='center', fontsize=20, weight='bold', color='#660099')
 
@@ -386,7 +407,10 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
         fig_height = max(4, 3 + len(df_chunk)*0.8)
         fig, ax = plt.subplots(figsize=(14, fig_height), dpi=180)
         ax.axis('off'); fig.patch.set_facecolor('white')
-        hora = (datetime.now() - timedelta(hours=3)).strftime('%d/%m • %H:%M')
+        
+        # COMO FORÇAMOS O TZ, AGORA PODEMOS USAR DATETIME.NOW() DIRETO
+        hora = (datetime.now()).strftime('%d/%m • %H:%M')
+        
         titulo = f"LISTA DE PENDÊNCIAS: {contrato}\n{hora}"
         if total_pags > 1: titulo += f"\n(Parte {num_pag}/{total_pags})"
         plt.title(titulo, loc='center', pad=40, fontsize=28, weight='black', color='#333')
@@ -456,10 +480,10 @@ else:
                              'lit': len(df[df['Area']=="Litoral"]), 'vale': len(df[df['Area']=="Vale"]) }
 
                     c1, c2 = st.columns(2)
-                    nome_arq = (datetime.now() - timedelta(hours=3)).strftime('%H%M')
+                    nome_arq = (datetime.now()).strftime('%H%M')
                     try:
                         img_cards = gerar_cards_mpl(kpis, contrato_selecionado)
-                        c1.download_button("📸 Baixar Resumo (Cards)", img_cards, f"Resumo_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                        c1.download_button("📸 Baixar Resumo (Cards)", img_cards, f"Resumo_{nome_arq}.jpg", "image/jpeg", width="stretch")
                     except Exception as e: st.error(f"Erro imagem: {e}")
 
                     df_gv = df[df['Afetação'] >= 100].copy()
@@ -505,17 +529,17 @@ else:
 
                     cols_exist = [c for c in ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'Técnicos', 'horas_float'] if c in df_show.columns]
                     styler = df_show[cols_exist].style.apply(row_style_apply, axis=1).set_properties(**{'font-size': '16px', 'font-weight': '600'})
-                    st.dataframe(styler, height=600, use_container_width=True, column_config={"Ocorrência": st.column_config.TextColumn("ID", width="medium"), "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"), "horas_float": None})
+                    st.dataframe(styler, height=600, width="stretch", column_config={"Ocorrência": st.column_config.TextColumn("ID", width="medium"), "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"), "horas_float": None})
 
                     try:
                         cols_exp = [c for c in cols_exist if c != 'horas_float']
                         lista_imagens = gerar_lista_mpl_from_view(df_show, cols_exp, contrato_selecionado)
                         if len(lista_imagens) == 1:
-                            c2.download_button("📄 Baixar Lista", lista_imagens[0], f"Lista_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                            c2.download_button("📄 Baixar Lista", lista_imagens[0], f"Lista_{nome_arq}.jpg", "image/jpeg", width="stretch")
                         else:
                             st.caption("Lista extensa dividida em partes:")
                             for idx_img, img_data in enumerate(lista_imagens):
-                                c2.download_button(f"📄 Baixar Lista (Parte {idx_img + 1})", img_data, f"Lista_{nome_arq}_Parte_{idx_img + 1}.jpg", "image/jpeg", use_container_width=True)
+                                c2.download_button(f"📄 Baixar Lista (Parte {idx_img + 1})", img_data, f"Lista_{nome_arq}_Parte_{idx_img + 1}.jpg", "image/jpeg", width="stretch")
                     except Exception as e: st.error(f"Erro lista: {e}")
 
             # --- ABA 2 ---
@@ -533,7 +557,7 @@ else:
                     st.divider()
                     try:
                         img_dashboard = gerar_dashboard_gerencial(df_geral, opcoes_validas)
-                        st.download_button(label="📸 BAIXAR DASHBOARD CLUSTER (IMAGEM)", data=img_dashboard, file_name=f"Dashboard_Cluster_{nome_arq}.jpg", mime="image/jpeg", use_container_width=True, type="primary")
+                        st.download_button(label="📸 BAIXAR DASHBOARD CLUSTER (IMAGEM)", data=img_dashboard, file_name=f"Dashboard_Cluster_{nome_arq}.jpg", mime="image/jpeg", width="stretch", type="primary")
                     except Exception as e: st.error(f"Erro ao gerar dashboard: {e}")
 
                     st.divider(); st.subheader("Detalhamento por Contrato")
@@ -542,7 +566,7 @@ else:
                         Fora_do_Prazo=('horas_float', lambda x: (x >= 8).sum()), Criticos=('horas_float', lambda x: (x > 24).sum())
                     ).reset_index().sort_values('Total', ascending=False)
                     styler_resumo = resumo.style.set_properties(**{'font-size': '18px', 'height': '40px'})
-                    st.dataframe(styler_resumo, use_container_width=True, hide_index=True, column_config={
+                    st.dataframe(styler_resumo, width="stretch", hide_index=True, column_config={
                         "Contrato_Padrao": st.column_config.TextColumn("Contrato"), "Grandes_Vultos": st.column_config.NumberColumn("GV (>100)", format="%d 🚨"),
                         "Fora_do_Prazo": st.column_config.NumberColumn("Fora do Prazo (>=8h)", format="%d ⚠️"), "Criticos": st.column_config.NumberColumn("Críticos (>24h)", format="%d 🛑")
                     })
