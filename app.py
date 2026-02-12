@@ -24,7 +24,7 @@ import io
 # --- Configuração da Página ---
 st.set_page_config(
     page_title="SigmaOPS • Monitoramento", 
-    page_icon="📡", 
+    page_icon="⚡", 
     layout="wide", 
     initial_sidebar_state="collapsed"
 )
@@ -68,7 +68,7 @@ st.markdown("""
     div[data-testid="stMetricValue"] { font-size: 32px !important; font-weight: 900 !important; color: #0f172a !important; }
     div[data-testid="stMetricDelta"] { font-size: 15px !important; font-weight: 700 !important; }
 
-    /* BOTÕES */
+    /* BOTÕES RADIO (VISÃO OPERACIONAL) */
     div[role="radiogroup"] label > div:first-child { display: none !important; }
     div[role="radiogroup"] { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px; }
     div[role="radiogroup"] label {
@@ -82,12 +82,30 @@ st.markdown("""
     }
     div[role="radiogroup"] label:has(input:checked) p { color: white !important; }
 
-    /* DOWNLOAD */
+    /* DOWNLOAD BUTTON */
     [data-testid="stDownloadButton"] > button {
         background-color: #7c3aed !important; color: white !important; border: none !important;
         width: 100%; font-weight: bold;
     }
     [data-testid="stDownloadButton"] > button:hover { background-color: #6d28d9 !important; }
+
+    /* --- ESTILO NOVO PARA O MULTISELECT (TAGS ROXAS) --- */
+    .stMultiSelect [data-baseweb="tag"] {
+        background-color: #7c3aed !important; /* Roxo igual ao menu */
+        color: white !important;
+        border: 1px solid #6d28d9 !important;
+    }
+    .stMultiSelect [data-baseweb="tag"] span {
+        color: white !important;
+    }
+    /* Botão de Submit do Form */
+    [data-testid="stFormSubmitButton"] > button {
+        background-color: #7c3aed !important;
+        color: white !important;
+        border: none !important;
+        width: 100%;
+        font-weight: bold;
+    }
 
     .status-box { padding: 12px; border-radius: 8px; margin-bottom: 15px; font-weight: 600; text-align: center; font-size: 0.9rem; }
     .status-ok { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
@@ -357,7 +375,7 @@ def gerar_cards_mpl(kpis, contrato):
 
 def gerar_dashboard_gerencial(df_geral, contratos_list):
     C_BG, C_BAR, C_RED, C_GREEN = "#ffffff", "#7c3aed", "#dc2626", "#16a34a"
-    df_filtrado = df_geral[df_geral['Contrato_Padrao'].isin(contratos_list)].copy()
+    df_filtrado = df_geral.copy()
 
     total_geral = len(df_filtrado)
     total_gv = len(df_filtrado[df_filtrado['Afetação'] >= 100])
@@ -365,11 +383,14 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
     total_dentro = total_geral - total_fora
 
     resumo = df_filtrado.groupby('Contrato_Padrao').agg(
-        Total=('Ocorrência', 'count'), Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()),
-        Fora_Prazo=('horas_float', lambda x: (x >= 8).sum()), Criticos=('horas_float', lambda x: (x > 24).sum()),
+        Total=('Ocorrência', 'count'), 
+        No_Prazo=('horas_float', lambda x: (x < 8).sum()), 
+        Fora_Prazo=('horas_float', lambda x: (x >= 8).sum()), 
+        Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()),
         VIPs=('VIP', lambda x: (x == 'SIM').sum()),
         Alto_Valor=('Cond. Alto Valor', lambda x: (x == 'SIM').sum()),
-        B2B=('B2B', lambda x: (x == 'SIM').sum())
+        B2B=('B2B', lambda x: (x == 'SIM').sum()),
+        Criticos=('horas_float', lambda x: (x > 24).sum())
     ).reset_index().sort_values('Total', ascending=False)
 
     fig, ax = plt.subplots(figsize=(14, 12), dpi=200)
@@ -398,10 +419,12 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
     y_start = 55
     ax.text(50, y_start, "DETALHAMENTO POR CONTRATO", ha='center', fontsize=18, weight='bold', color='#333')
     
-    colunas = ["CONTRATO", "TOTAL", "G. VULTO", "VIPS", "ALTO VALOR", "B2B", "CRÍTICO >24H"]
+    colunas = ["CONTRATO", "Total", "No Prazo", "Fora Prazo", "G.V", "Vips", "Alto Valor", "B2B", ">24H"]
     dados_tabela = [[
         row['Contrato_Padrao'], 
         str(row['Total']), 
+        str(row['No_Prazo']), 
+        str(row['Fora_Prazo']), 
         str(row['Grandes_Vultos']),
         str(row['VIPs']),
         str(row['Alto_Valor']),
@@ -410,7 +433,7 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
     ] for _, row in resumo.iterrows()]
 
     tbl = ax.table(cellText=dados_tabela, colLabels=colunas, loc='center', bbox=[0.05, 0.05, 0.9, 0.45])
-    tbl.auto_set_font_size(False); tbl.set_fontsize(12); tbl.scale(1, 2)
+    tbl.auto_set_font_size(False); tbl.set_fontsize(11); tbl.scale(1, 2)
     for (i, j), cell in tbl.get_celld().items():
         if i == 0:
             cell.set_text_props(weight='bold', color='white'); cell.set_facecolor('#7c3aed'); cell.set_edgecolor('white')
@@ -610,49 +633,68 @@ else:
 
             with tab_ger:
                 st.markdown("<br>", unsafe_allow_html=True)
-                st.header("Visão Cluster (Consolidada)")
-                df_geral = processar_regras_generico(df_raw, contratos_validos=opcoes_validas)
                 
-                if not df_geral.empty:
-                    total_geral = len(df_geral)
-                    total_gv = len(df_geral[df_geral['Afetação'] >= 100])
-                    total_fora = len(df_geral[df_geral['horas_float'] >= 8])
-                    total_dentro = total_geral - total_fora
+                # --- FILTRO MULTISELECT DENTRO DE FORMULÁRIO ---
+                with st.form("form_cluster"):
+                    filtro_contratos = st.multiselect(
+                        "Selecione os Contratos:",
+                        options=opcoes_validas,
+                        default=opcoes_validas,
+                        placeholder="Escolha um ou mais contratos..."
+                    )
+                    aplicar = st.form_submit_button("Atualizar Visão")
 
-                    g1, g2 = st.columns(2)
-                    g1.metric("Total Geral", total_geral)
-                    g2.metric("Grandes Vultos", total_gv, delta="Atenção" if total_gv > 0 else "OK", delta_color="inverse")
-                    
-                    st.markdown("<br>", unsafe_allow_html=True)
-
-                    g3, g4 = st.columns(2)
-                    g3.metric("Dentro do Prazo", total_dentro)
-                    g4.metric("Fora do Prazo", total_fora, delta="Crítico" if total_fora > 0 else "OK", delta_color="inverse")
-
-                    st.divider()
-                    try:
-                        img_dashboard = gerar_dashboard_gerencial(df_geral, opcoes_validas)
-                        st.download_button("Baixar Dashboard Gerencial", img_dashboard, f"Dash_Cluster_{nome_arq}.jpg", "image/jpeg", width="stretch", type="primary")
-                    except Exception as e: st.error(f"Erro ao gerar dashboard: {e}")
-
-                    st.divider()
-                    st.markdown("##### Detalhamento por Contrato")
-                    resumo = df_geral.groupby('Contrato_Padrao').agg(
-                        Total=('Ocorrência', 'count'), 
-                        Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()),
-                        VIPs=('VIP', lambda x: (x == 'SIM').sum()),
-                        Condos=('Cond. Alto Valor', lambda x: (x == 'SIM').sum()),
-                        B2B=('B2B', lambda x: (x == 'SIM').sum()),
-                        Criticos=('horas_float', lambda x: (x > 24).sum())
-                    ).reset_index().sort_values('Total', ascending=False)
-                    
-                    st.dataframe(resumo, width="stretch", hide_index=True, column_config={
-                        "VIPs": st.column_config.NumberColumn("VIPs", format="%d "),
-                        "Condos": st.column_config.NumberColumn("Alto Valor", format="%d "),
-                        "B2B": st.column_config.NumberColumn("B2B", format="%d "),
-                        "Criticos": st.column_config.NumberColumn("Críticos (>24h)", format="%d ")
-                    })
+                if not filtro_contratos:
+                    st.warning("Selecione ao menos um contrato.")
                 else:
-                    st.info("Sem dados consolidados.")
+                    # Lógica aplicada somente após o submit (ou no load inicial)
+                    df_geral = processar_regras_generico(df_raw, contratos_validos=filtro_contratos)
+                    
+                    if not df_geral.empty:
+                        total_geral = len(df_geral)
+                        total_gv = len(df_geral[df_geral['Afetação'] >= 100])
+                        total_fora = len(df_geral[df_geral['horas_float'] >= 8])
+                        total_dentro = total_geral - total_fora
+
+                        g1, g2 = st.columns(2)
+                        g1.metric("Total Geral", total_geral)
+                        g2.metric("Grandes Vultos", total_gv, delta="Atenção" if total_gv > 0 else "OK", delta_color="inverse")
+                        
+                        st.markdown("<br>", unsafe_allow_html=True)
+
+                        g3, g4 = st.columns(2)
+                        g3.metric("Dentro do Prazo", total_dentro)
+                        g4.metric("Fora do Prazo", total_fora, delta="Crítico" if total_fora > 0 else "OK", delta_color="inverse")
+
+                        st.divider()
+                        try:
+                            img_dashboard = gerar_dashboard_gerencial(df_geral, filtro_contratos)
+                            st.download_button("Baixar Dashboard Gerencial", img_dashboard, f"Dash_Cluster_{nome_arq}.jpg", "image/jpeg", width="stretch", type="primary")
+                        except Exception as e: st.error(f"Erro ao gerar dashboard: {e}")
+
+                        st.divider()
+                        st.markdown("##### Detalhamento por Contrato")
+                        
+                        resumo = df_geral.groupby('Contrato_Padrao').agg(
+                            Total=('Ocorrência', 'count'), 
+                            No_Prazo=('horas_float', lambda x: (x < 8).sum()),
+                            Fora_Prazo=('horas_float', lambda x: (x >= 8).sum()),
+                            Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()),
+                            VIPs=('VIP', lambda x: (x == 'SIM').sum()),
+                            Condos=('Cond. Alto Valor', lambda x: (x == 'SIM').sum()),
+                            B2B=('B2B', lambda x: (x == 'SIM').sum()),
+                            Criticos=('horas_float', lambda x: (x > 24).sum())
+                        ).reset_index().sort_values('Total', ascending=False)
+                        
+                        st.dataframe(resumo, width="stretch", hide_index=True, column_config={
+                            "No_Prazo": st.column_config.NumberColumn("No Prazo", format="%d "),
+                            "Fora_Prazo": st.column_config.NumberColumn("Fora do Prazo", format="%d "),
+                            "VIPs": st.column_config.NumberColumn("VIPs", format="%d "),
+                            "Condos": st.column_config.NumberColumn("Alto Valor", format="%d "),
+                            "B2B": st.column_config.NumberColumn("B2B", format="%d "),
+                            "Criticos": st.column_config.NumberColumn("Críticos (>24h)", format="%d ")
+                        })
+                    else:
+                        st.info("Sem dados para os contratos selecionados.")
     else:
         st.error("Colunas de Contrato não identificadas na API.")
