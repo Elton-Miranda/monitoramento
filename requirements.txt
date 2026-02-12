@@ -3,4 +3,5 @@ pandas
 openpyxl
 matplotlib
 undetected-chromedriver
-setuptools
+requests
+openpyxl
