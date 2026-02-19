@@ -10,6 +10,7 @@ services:
       - API_KEY=a6e41c2a5f544c1ca9dbf6e9bfc1e8e5
     networks:
       - monitoramento
+    restart: unless-stopped
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -20,6 +21,7 @@ services:
       - cloudflared
     networks:
       - monitoramento
+    restart: unless-stopped
 
 networks:
   monitoramento:

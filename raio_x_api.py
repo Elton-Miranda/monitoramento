@@ -1,54 +1,93 @@
-import requests
+import streamlit as st
 import pandas as pd
-import json
-import os
+import requests
 
-# Configurações
-URL = os.getenv("API_URL", "https://telecom.hermeticshell.org/api/view")
-API_KEY = os.getenv("API_KEY", "a6e41c2a5f544c1ca9dbf6e9bfc1e8e5")
-HEADERS = {
-    "X-API-Key": API_KEY,
-    "Content-Type": "application/json"
-}
+# ==============================================================================
+# ⚙️ CONFIGURAÇÃO DA PÁGINA
+# ==============================================================================
+st.set_page_config(page_title="Raio-X da API (Busca Avançada)", page_icon="🔍", layout="wide")
 
-print(f"📡 Conectando a {URL}...")
+st.title("📡 Raio-X: Busca por Equipamentos, Arquivos e Primárias")
 
 try:
-    response = requests.get(URL, headers=HEADERS, timeout=15)
-    
-    if response.status_code == 200:
-        print("✅ Sucesso! Dados recebidos.")
-        data = response.json()
-        
-        if 'ocorrencias' in data:
-            df = pd.DataFrame(data['ocorrencias'])
-            
-            print("\n" + "="*50)
-            print("🔍 LISTA DE COLUNAS REAIS (Copie o nome exato)")
-            print("="*50)
-            for col in sorted(df.columns):
-                print(f" -> {col}")
-            
-            print("\n" + "="*50)
-            print("🧪 AMOSTRA DE VALORES (Para entender o formato)")
-            print("="*50)
-            
-            # Procura colunas suspeitas
-            suspeitas = [c for c in df.columns if any(x in c.lower() for x in ['vip', 'cond', 'alto', 'valor', 'b2b', 'imp', 'pri'])]
-            
-            if suspeitas:
-                print(df[suspeitas].head(5).to_string())
-            else:
-                print("⚠️ Nenhuma coluna óbvia de VIP encontrada. Verifique a lista completa acima.")
-                
-        else:
-            print("❌ O JSON não tem a chave 'ocorrencias'.")
-            print("Chaves encontradas:", data.keys())
-            
-    else:
-        print(f"❌ Erro na requisição: {response.status_code}")
-        print("Resposta:", response.text)
-
+    URL = st.secrets["api"]["url"]
+    HEADERS = dict(st.secrets["api"].get("headers", {}))
 except Exception as e:
-    print(f"❌ Falha de conexão: {e}")
-    print("Dica: Verifique se a VPN está ligada.")
+    st.error("❌ Erro ao carregar secrets.toml. Verifique suas configurações.")
+    st.stop()
+
+st.info(f"Conectando a: `{URL}`")
+
+# ==============================================================================
+# 📡 FUNÇÃO DE DOWNLOAD
+# ==============================================================================
+@st.cache_data(ttl=60)
+def fetch_data():
+    try:
+        response = requests.get(URL, headers=HEADERS, timeout=15)
+        if response.status_code == 200:
+            return response.json(), None
+        else:
+            return None, f"Erro {response.status_code}: {response.text}"
+    except Exception as e:
+        return None, str(e)
+
+with st.spinner("Baixando dados..."):
+    data, erro = fetch_data()
+
+# ==============================================================================
+# 📊 RENDERIZAÇÃO NA TELA
+# ==============================================================================
+if erro:
+    st.error(f"❌ Falha de conexão: {erro}")
+elif data:
+    st.success("✅ Sucesso! Dados recebidos.")
+    
+    if 'ocorrencias' in data:
+        df = pd.DataFrame(data['ocorrencias'])
+        
+        c1, c2 = st.columns([1, 2.5])
+        
+        with c1:
+            st.subheader("🔍 Colunas Reais")
+            colunas_ordenadas = sorted(df.columns)
+            st.code("\n".join([f"-> {col}" for col in colunas_ordenadas]))
+            
+        with c2:
+            st.subheader("🧪 Detetive de Dados")
+            st.markdown("Procurando colunas que possam conter o `ocorrencia_eq.txt` ou a `primária`...")
+            
+            # --- REDE DE CAPTURA AMPLIADA ---
+            # Aqui colocamos tudo que pode ser uma pista de onde está o arquivo ou texto
+            palavras_chave = [
+                'cabo', 'cab', 'primari', 'pri', 
+                'eq', 'equip', 'equipamento', 
+                'txt', 'arq', 'arquivo', 'file', 
+                'desc', 'obs', 'log', 'historico', 'texto'
+            ]
+            
+            colunas_encontradas = [
+                c for c in df.columns 
+                if any(chave in str(c).lower().replace('á', 'a').replace('ã', 'a') for chave in palavras_chave)
+            ]
+            
+            if colunas_encontradas:
+                st.success(f"Encontradas {len(colunas_encontradas)} colunas suspeitas!")
+                # Mostra o conteúdo para você ler e ver se é o texto do TXT
+                st.dataframe(df[colunas_encontradas].head(15), use_container_width=True)
+                
+                st.markdown("**Valores únicos / Exemplos de preenchimento:**")
+                for col in colunas_encontradas:
+                    # Pega os primeiros 100 caracteres para não quebrar a tela se o texto do txt for gigante
+                    valores_unicos = df[col].dropna().astype(str).str[:100].unique()
+                    st.caption(f"**{col}**: `{', '.join(valores_unicos[:5])}...`")
+            else:
+                st.warning("⚠️ Nenhuma coluna suspeita encontrada.")
+                
+        st.divider()
+        
+        st.subheader("🗂️ Amostra Completa (Olhe todas as colunas para ter certeza)")
+        st.dataframe(df.head(20), use_container_width=True)
+        
+    else:
+        st.error("❌ O JSON não tem a chave 'ocorrencias'.")
