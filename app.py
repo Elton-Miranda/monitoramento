@@ -1,5 +1,14 @@
 import os
 import time
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta, timezone
+import requests
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import io
+import hashlib
+import sqlite3
 
 # ==============================================================================
 # 🌍 1. CONFIGURAÇÃO DE AMBIENTE
@@ -10,458 +19,534 @@ try:
 except AttributeError:
     pass
 
-# ==============================================================================
-# 📦 IMPORTS
-# ==============================================================================
-import streamlit as st
-import pandas as pd
-from datetime import datetime, timedelta
-import requests
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import io
-
-# --- Configuração da Página ---
 st.set_page_config(
-    page_title="SigmaOPS • Monitoramento", 
-    page_icon="⚡", 
+    page_title="SigmaOPS", 
+    page_icon="🔒", 
     layout="wide", 
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded" 
 )
 
 # ==============================================================================
-# 🔒 SISTEMA DE LOGIN (DESATIVADO TEMPORARIAMENTE)
+# ⚙️ CONSTANTES GLOBAIS
 # ==============================================================================
-# O código abaixo está comentado com '#' para não aparecer na tela.
-# Para reativar: remova os '#' e apague a linha USER_ROLE = "admin"
-
-# def check_password():
-#     def password_entered():
-#         user_input = st.session_state["username"].strip().lower()
-#         password_input = st.session_state["password"].strip()
-#         if user_input in st.secrets["passwords"]:
-#             if password_input == st.secrets["passwords"][user_input]:
-#                 st.session_state["password_correct"] = True
-#                 st.session_state["role"] = st.secrets["roles"].get(user_input, "user") if "roles" in st.secrets else "user"
-#                 del st.session_state["password"]; del st.session_state["username"]
-#             else: st.session_state["password_correct"] = False
-#         else: st.session_state["password_correct"] = False
-
-#     if "password_correct" not in st.session_state:
-#         st.markdown("""<style>.block-container { padding-top: 3rem; display: flex; align-items: center; justify-content: center; } div[data-testid="stForm"] { border: none; padding: 50px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.08); background: white; width: 100%; max-width: 450px; } div[data-testid="stTextInput"] > div > div { border: 2px solid #a78bfa !important; border-radius: 10px !important; background-color: #f8fafc; padding: 0px !important; } div[data-testid="stTextInput"] input { padding: 10px 15px !important; color: #333 !important; } div[data-testid="stMarkdownContainer"] p { font-weight: 600; color: #475569; font-size: 14px; } div[data-testid="stFormSubmitButton"] > button { width: 100%; background-color: #1e1b4b !important; color: white !important; border-radius: 10px; padding: 10px; border: none; font-weight: bold; margin-top: 15px; } div[data-testid="stFormSubmitButton"] > button:hover { background-color: #7c3aed !important; } .login-title { text-align: center; font-size: 42px; font-weight: 900; color: #7c3aed; margin-bottom: 5px; margin-top: 0px; letter-spacing: -1px; } .login-subtitle { text-align: center; color: #94a3b8; margin-bottom: 30px; font-weight: 500; font-size: 0.95rem; } </style>""", unsafe_allow_html=True)
-#         c1, c2, c3 = st.columns([1, 2, 1])
-#         with c2:
-#             st.markdown("<h1 class='login-title'>SigmaOPS</h1>", unsafe_allow_html=True)
-#             st.markdown("<p class='login-subtitle'>Acesso Restrito</p>", unsafe_allow_html=True)
-#             with st.form("credentials"):
-#                 st.text_input("Usuário", key="username")
-#                 st.text_input("Senha", type="password", key="password")
-#                 st.form_submit_button("Entrar", on_click=password_entered)
-#         return False
-#     elif not st.session_state["password_correct"]:
-#         st.error("😕 Usuário ou senha incorretos.")
-#         if st.button("Tentar Novamente"): st.session_state["password_correct"] = None; st.rerun()
-#         return False
-#     else: return True
-
-# if not check_password(): st.stop()
-# USER_ROLE = st.session_state.get("role", "user")
-
-# --- BYPASS DE LOGIN (ATIVO) ---
-USER_ROLE = "admin" # Libera acesso total
+ARQUIVO_CNL_CSV = "CNL_BASE_MONITORAMENTO.csv"
+ARQUIVO_CNL_XLSX = "CNL_BASE_MONITORAMENTO.xlsx"
+DB_FILE = "users_sigma.db"
+CONTRATOS_VALIDOS = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_PC_SC", "TELEMONT"]
+nome_arq = datetime.now().strftime('%H%M')
 
 # ==============================================================================
-# 🎨 SIGMA UI - V15.17 (ESTILOS FINAIS)
+# 🔐 SEGURANÇA E BANCO DE DADOS
 # ==============================================================================
+def get_secret(section, key):
+    try: return st.secrets[section][key]
+    except: return None
+
+API_URL = get_secret("api", "url") or ""
+API_HEADERS = dict(st.secrets["api"].get("headers", {})) if get_secret("api", "headers") else {}
+SESSION_SALT = get_secret("security", "session_salt") or "sigma_master_key_2026"
+
+def get_db_connection():
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
+
+def init_db():
+    try:
+        conn = get_db_connection()
+        conn.execute('''CREATE TABLE IF NOT EXISTS users 
+                     (username TEXT PRIMARY KEY, password_hash TEXT, role TEXT, contract TEXT, approved INTEGER, created_at TEXT)''')
+        conn.commit(); conn.close()
+    except: pass
+
+def db_actions(action, u=None, p=None, c=None, r=None):
+    conn = get_db_connection()
+    try:
+        if action == "add":
+            ph = hashlib.sha256(f"{p}{SESSION_SALT}".encode()).hexdigest()
+            conn.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)", (u.upper(), ph, 'user', c, 0, datetime.now().strftime("%Y-%m-%d")))
+            conn.commit(); return True, "Solicitação enviada. Aguarde liberação."
+        elif action == "verify":
+            ph = hashlib.sha256(f"{p}{SESSION_SALT}".encode()).hexdigest()
+            return conn.execute("SELECT role, contract, approved FROM users WHERE username=? AND password_hash=?", (u.upper(), ph)).fetchone()
+        elif action == "pending":
+            return pd.read_sql_query("SELECT username, contract FROM users WHERE approved = 0", conn)
+        elif action == "approve":
+            conn.execute("UPDATE users SET approved = 1, role = ? WHERE username = ?", (r, u))
+            conn.commit()
+        elif action == "delete":
+            conn.execute("DELETE FROM users WHERE username = ?", (u,))
+            conn.commit()
+    except Exception as e: return False, str(e)
+    finally: conn.close()
+
+init_db()
+
+# ==============================================================================
+# 🚪 LÓGICA DE LOGIN (SISTEMA DE BARREIRA)
+# ==============================================================================
+if "logged_in" not in st.session_state:
+    st.session_state.update({"logged_in": False, "username": None, "role": None, "allowed_contract": None})
+
+# Verificação F5 (URL Token)
+if not st.session_state["logged_in"]:
+    qp = st.query_params
+    if qp.get("u") and qp.get("t"):
+        raw = f"{qp['u']}{SESSION_SALT}{datetime.now().strftime('%Y-%m-%d')}"
+        if qp["t"] == hashlib.sha256(raw.encode()).hexdigest():
+            st.session_state.update({
+                "logged_in": True, "username": qp["u"], 
+                "role": qp.get("r"), "allowed_contract": qp.get("c") if qp.get("c") != "None" else None
+            })
+
+def confirm_login(u, r, c):
+    st.session_state.update({"logged_in": True, "username": u, "role": r, "allowed_contract": c})
+    raw = f"{u}{SESSION_SALT}{datetime.now().strftime('%Y-%m-%d')}"
+    st.query_params["u"] = u; st.query_params["r"] = r; st.query_params["c"] = str(c)
+    st.query_params["t"] = hashlib.sha256(raw.encode()).hexdigest()
+    st.rerun()
+
+# 🛑 TELA DE LOGIN (Interrompe o código aqui se não estiver logado)
+if not st.session_state["logged_in"]:
+    st.markdown("""
+    <style>
+        .stApp { background-color: #ffffff; }
+        [data-testid="stSidebar"], header, footer { display: none !important; }
+        .login-box { margin: 10vh auto; padding: 40px; background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); max-width: 380px; border: 1px solid #f1f5f9; text-align: center; }
+        .logo { font-size: 4rem; font-weight: 900; background: -webkit-linear-gradient(#a855f7, #4c1d95); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        div[data-testid="stFormSubmitButton"] button { width: 100%; background-color: #7c3aed !important; color: white !important; font-weight: bold; border-radius: 8px; }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="login-box"><div class="logo">Σ</div><h2 style="color:#4c1d95;margin-top:-10px;">SigmaOPS</h2></div>', unsafe_allow_html=True)
+    
+    c1, c2, c3 = st.columns([1, 1.2, 1])
+    with c2:
+        t1, t2 = st.tabs(["Acessar", "Cadastrar"])
+        with t1:
+            with st.form("login_form"):
+                u = st.text_input("Usuário").strip().upper()
+                p = st.text_input("Senha", type="password")
+                if st.form_submit_button("Entrar"):
+                    r_u = get_secret("admin", "user") or "ADMIN"
+                    r_p = get_secret("admin", "password") or "admin"
+                    
+                    if u == r_u.upper() and p == r_p:
+                        confirm_login(u, "admin", None)
+                    else:
+                        res = db_actions("verify", u=u, p=p)
+                        if res:
+                            if res[2] == 1: confirm_login(u, res[0], res[1])
+                            else: st.warning("Aguardando aprovação do administrador.")
+                        else: st.error("Dados inválidos.")
+        with t2:
+            with st.form("reg_form"):
+                ru = st.text_input("Usuário Desejado").strip().upper()
+                rc = st.selectbox("Área", CONTRATOS_VALIDOS)
+                rp = st.text_input("Senha", type="password")
+                if st.form_submit_button("Solicitar Acesso"):
+                    if ru and rp:
+                        ok, msg = db_actions("add", u=ru, p=rp, c=rc)
+                        if ok: st.success(msg)
+                        else: st.error(msg)
+                    else: st.error("Preencha todos os campos.")
+    st.stop() # Mata a execução. O dashboard não carrega até logar.
+
+# ==============================================================================
+# 🚀 APLICAÇÃO PRINCIPAL (SÓ RODA APÓS LOGIN)
+# ==============================================================================
+USUARIO = st.session_state["username"]
+PERFIL = st.session_state["role"]
+CONTRATO = st.session_state["allowed_contract"]
+
+# --- ESTILOS CSS ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background-color: #f4f6f9; }
-
-    .block-container { padding-top: 3.5rem !important; padding-bottom: 1rem !important; padding-left: 0.5rem !important; padding-right: 0.5rem !important; max-width: 100% !important; }
-    .sigma-header { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 10px 15px; border-radius: 8px; color: white; margin-top: -10px; margin-bottom: 10px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #7c3aed; }
-    .sigma-title { font-size: 18px; font-weight: 900; margin: 0; background: -webkit-linear-gradient(0deg, #fff, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .sigma-clock { background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; border: 1px solid rgba(255,255,255,0.1); }
-
-    .stMultiSelect [data-baseweb="tag"] { background-color: #7c3aed !important; color: white !important; border: 1px solid #6d28d9 !important; }
-    .stMultiSelect [data-baseweb="tag"] span { color: white !important; }
-    .stMultiSelect [data-baseweb="tag"] svg { fill: white !important; }
-
-    div[role="radiogroup"] label > div:first-child { display: none !important; }
-    div[role="radiogroup"] { display: grid !important; grid-template-columns: repeat(3, 1fr) !important; gap: 8px !important; background-color: transparent !important; width: 100% !important; margin-bottom: 5px; }
-    div[role="radiogroup"] label { background-color: white !important; border: 1px solid #cbd5e1 !important; color: #475569 !important; padding: 8px 4px !important; border-radius: 6px !important; font-weight: 600 !important; font-size: 12px !important; transition: all 0.2s; margin: 0 !important; width: 100% !important; height: 100% !important; display: flex; justify-content: center; align-items: center; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); white-space: normal !important; line-height: 1.2 !important; }
-    div[role="radiogroup"] label:has(input:checked) { background-color: #7c3aed !important; border-color: #7c3aed !important; color: white !important; box-shadow: 0 2px 5px rgba(124, 58, 237, 0.3) !important; }
-    div[role="radiogroup"] label:has(input:checked) p { color: white !important; }
-    div[role="radiogroup"] label:hover { background-color: #f1f5f9 !important; border-color: #94a3b8 !important; }
-
-    @media only screen and (max-width: 600px) {
-        div[role="radiogroup"] { grid-template-columns: repeat(2, 1fr) !important; }
-        div[role="radiogroup"] label { padding: 8px 2px !important; font-size: 11px !important; }
-        .sigma-title { font-size: 16px; }
+    .stApp { background-color: #f8fafc; }
+    .block-container { padding-top: 2rem !important; padding-bottom: 5rem !important; }
+    
+    .sigma-header { 
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); 
+        padding: 20px 30px; border-radius: 0 0 12px 12px; 
+        display: flex; justify-content: space-between; align-items: flex-start; 
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border-bottom: 4px solid #7c3aed; margin-bottom: 20px; 
     }
+    .sigma-title { font-size: 24px; font-weight: 900; color: white; margin: 0; }
+    .sigma-time { font-size: 20px; font-weight: 800; color: white; background: rgba(255,255,255,0.1); padding: 4px 12px; border-radius: 6px; }
+    .sigma-label { font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase; text-align: right; display: block; }
 
-    .stDataFrame td { text-align: center !important; font-size: 12px !important; padding: 2px !important; } 
-    .stDataFrame th { text-align: center !important; font-size: 12px !important; }
-    .alert-box { padding: 6px; border-radius: 6px; background-color: #fee2e2; border: 1px solid #fecaca; color: #991b1b; font-weight: bold; font-size: 13px; text-align: center; margin-bottom: 5px; }
-    [data-testid="stFormSubmitButton"] > button { background-color: #7c3aed !important; color: white !important; border: none !important; }
-    .modo-leitura { font-size: 24px; line-height: 1.6; color: #1e293b; background-color: white; padding: 30px; border-radius: 15px; border-left: 10px solid #7c3aed; }
+    div[data-testid="stButton"] button { background-color: #7c3aed !important; color: white !important; font-weight: 700 !important; border: none !important; }
+    .sidebar-footer button { background-color: #fee2e2 !important; color: #991b1b !important; border: 1px solid #fecaca !important; width: 100%; }
+    
+    div[role="radiogroup"] label { background-color: white !important; border: 1px solid #e2e8f0; font-weight: 600; color: #64748b; padding: 8px 16px; border-radius: 6px; transition: all 0.2s; }
+    div[role="radiogroup"] label:has(input:checked) { background-color: #7c3aed !important; color: white !important; border-color: #7c3aed; }
+    div[role="radiogroup"] label > div:first-child { display: none !important; }
+    
+    .stMultiSelect [data-baseweb="tag"] { background-color: #7c3aed !important; color: white !important; }
+    .stDataFrame td { text-align: center !important; font-size: 12px !important; vertical-align: middle; padding: 6px !important; }
+    .stDataFrame th { background-color: #f1f5f9 !important; font-size: 13px !important; color: #475569 !important; }
+    .alert-box { background-color: #fee2e2; color: #991b1b; padding: 10px; border-radius: 8px; text-align: center; font-weight: bold; border: 1px solid #fecaca; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- CONFIGURAÇÃO ---
-try:
-    API_URL = st.secrets["api"]["url"]
-    API_HEADERS = dict(st.secrets["api"].get("headers", {}))
-except:
-    API_URL = ""
-    API_HEADERS = {}
+# --- HEADER HTML ---
+hora_atual = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%H:%M")
+st.markdown(f'<div class="sigma-header"><div class="sigma-title">SigmaOPS</div><div><span class="sigma-label">Última Atualização</span><span class="sigma-time">{hora_atual}</span></div></div>', unsafe_allow_html=True)
 
-ARQUIVO_CNL_CSV = "CNL_BASE_MONITORAMENTO.csv"
-ARQUIVO_CNL_XLSX = "CNL_BASE_MONITORAMENTO.xlsx"
+# --- SIDEBAR E PAINEL ADMIN ---
+with st.sidebar:
+    st.markdown(f"### 👤 {USUARIO}")
+    if CONTRATO: st.markdown(f"📍 **{CONTRATO}**")
+    
+    if PERFIL == "admin":
+        st.divider()
+        st.markdown("#### 🛡️ Aprovação de Acessos")
+        pend = db_actions("pending")
+        if not pend.empty:
+            st.warning(f"🔔 {len(pend)} Pendente(s)")
+            for i, row in pend.iterrows():
+                with st.container(border=True):
+                    st.markdown(f"**{row['username']}** | {row['contract']}")
+                    r_sel = st.selectbox("Perfil:", ["user", "admin"], key=f"r_{row['username']}", label_visibility="collapsed")
+                    c1, c2 = st.columns(2)
+                    if c1.button("✅ Aprovar", key=f"y_{row['username']}", use_container_width=True): 
+                        db_actions("approve", u=row['username'], r=r_sel); st.rerun()
+                    if c2.button("❌ Recusar", key=f"n_{row['username']}", use_container_width=True): 
+                        db_actions("delete", u=row['username']); st.rerun()
+        else:
+            st.success("Tudo limpo! ✅")
+
+    st.markdown("---")
+    st.markdown("<div style='height: 20vh'></div>", unsafe_allow_html=True)
+    with st.container():
+        st.markdown('<div class="sidebar-footer">', unsafe_allow_html=True)
+        if st.button("🚪 Sair do Sistema"):
+            st.session_state.clear()
+            st.query_params.clear()
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================================================================
-# 🧠 LÓGICA (MANTIDA)
+# 🧠 DADOS E LÓGICA DE SLA B2B
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def carregar_base_cnl():
-    df = None
     if os.path.exists(ARQUIVO_CNL_CSV):
-        try: df = pd.read_csv(ARQUIVO_CNL_CSV, sep=None, engine='python')
+        try: df = pd.read_csv(ARQUIVO_CNL_CSV, sep=None, engine='python'); df['CNL'] = df['CNL'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip(); return df[['CNL', 'MUNICÍPIO']].drop_duplicates(subset='CNL')
         except: pass
-    if df is None and os.path.exists(ARQUIVO_CNL_XLSX):
-        try: df = pd.read_excel(ARQUIVO_CNL_XLSX)
+    if os.path.exists(ARQUIVO_CNL_XLSX):
+        try: df = pd.read_excel(ARQUIVO_CNL_XLSX); df['CNL'] = df['CNL'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip(); return df[['CNL', 'MUNICÍPIO']].drop_duplicates(subset='CNL')
         except: pass
-    if df is not None:
-        if 'CNL' in df.columns and 'MUNICÍPIO' in df.columns:
-            df = df.dropna(subset=['CNL']); df['CNL'] = df['CNL'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip(); df['MUNICÍPIO'] = df['MUNICÍPIO'].astype(str).str.strip().str.upper()
-            return df[['CNL', 'MUNICÍPIO']].drop_duplicates(subset='CNL')
     return None
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_dados_api():
     if not API_URL: return None, "Sem URL configurada."
     try:
         response = requests.get(API_URL, headers=API_HEADERS, timeout=25)
         if response.status_code == 200:
-            try: json_data = response.json()
-            except: return None, "Erro JSON."
-            if 'ocorrencias' in json_data:
-                df = pd.DataFrame(json_data['ocorrencias'])
-                rename_map = { 'ocorrencia': 'Ocorrência', 'data_abertura': 'Data Abertura', 'contrato': 'Contrato', 'escritorio': 'Escritório', 'cnl': 'CNL', 'at': 'AT', 'cabo': 'Cabo', 'afetacao': 'Afetação', 'origem': 'Origem', 'primarias': 'Primárias', 'bd': 'BD', 'propenso_anatel': 'Propensos - Anatel', 'reclamado_anatel': 'Reclamados - Anatel', 'vip': 'VIP', 'b2b_avancado': 'B2B_Value', 'cond_alto_valor': 'Cond. Alto Valor' }
+            data = response.json()
+            if 'ocorrencias' in data:
+                df = pd.DataFrame(data['ocorrencias'])
+                rename_map = { 'ocorrencia': 'Ocorrência', 'data_abertura': 'Abertura', 'contrato': 'Contrato', 'cnl': 'CNL', 'at': 'AT', 'afetacao': 'Afetação', 'vip': 'VIP', 'cond_alto_valor': 'Cond. Alto Valor', 'b2b_avancado': 'B2B', 'tecnicos': 'Técnicos', 'origem': 'Origem' }
                 df.rename(columns=rename_map, inplace=True)
-                df['Técnicos'] = df['tecnicos'].apply(lambda x: len(x) if isinstance(x, list) else 0) if 'tecnicos' in json_data['ocorrencias'][0] else 0
-                for col in ['VIP']: df[col] = df[col].apply(lambda x: 'SIM' if str(x).upper().strip() in ['TRUE', 'SIM', '1', 'S', 'YES'] else 'NÃO') if col in df.columns else 'NÃO'
-                df['Cond. Alto Valor'] = pd.to_numeric(df['Cond. Alto Valor'], errors='coerce').fillna(0).apply(lambda x: 'SIM' if x != 0 else 'NÃO') if 'Cond. Alto Valor' in df.columns else 'NÃO'
-                df['B2B'] = pd.to_numeric(df['B2B_Value'], errors='coerce').fillna(0).apply(lambda x: 'SIM' if x > 0 else 'NÃO') if 'B2B_Value' in df.columns else 'NÃO'
-                df['Data Abertura'] = pd.to_datetime(df['Data Abertura'], errors='coerce')
+                df['Abertura_dt'] = pd.to_datetime(df['Abertura'], errors='coerce')
+                if 'Técnicos' in df.columns: df['Técnicos'] = df['Técnicos'].apply(lambda x: len(x) if isinstance(x, list) else 0)
+                for col in ['VIP', 'Cond. Alto Valor', 'B2B']:
+                    if col in df.columns: df[col] = df[col].apply(lambda x: 'SIM' if str(x).upper() in ['TRUE', 'SIM', '1', 'S', 'YES'] else 'NÃO')
                 return df, None
-            else: return None, "JSON incompleto."
-        return None, f"Erro HTTP {response.status_code}"
-    except Exception as e: return None, f"Conexão: {str(e)}"
+        return None, f"Erro {response.status_code}"
+    except Exception as e: return None, str(e)
 
-def processar_regras_generico(df_full, contratos_validos=None, filtrar_contrato=None):
+def processar_dados(df_raw, filtros_contrato):
     agora = datetime.utcnow() - timedelta(hours=3)
-    cols_map = {str(c).lower().strip(): c for c in df_full.columns}
+    df = df_raw.copy()
     df_cnl = carregar_base_cnl()
-    col_cnl_main = cols_map.get('cnl')
-    if df_cnl is not None and col_cnl_main:
-        df_full[col_cnl_main] = df_full[col_cnl_main].astype(str).str.replace(r'\.0$', '', regex=True).str.strip(); df_full = pd.merge(df_full, df_cnl, left_on=col_cnl_main, right_on='CNL', how='left'); df_full.rename(columns={'MUNICÍPIO': 'Cidade_Real'}, inplace=True)
+    if df_cnl is not None:
+        df['CNL'] = df['CNL'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        df = pd.merge(df, df_cnl, on='CNL', how='left')
+        df.rename(columns={'MUNICÍPIO': 'Cidade_Real'}, inplace=True)
     
-    col_contrato = cols_map.get('contrato') or cols_map.get('escritório')
-    if col_contrato:
-        df_full['Contrato_Padrao'] = df_full[col_contrato].astype(str).str.strip().str.upper()
-        if filtrar_contrato: df = df_full[df_full['Contrato_Padrao'] == filtrar_contrato].copy()
-        elif contratos_validos: df = df_full[df_full['Contrato_Padrao'].isin(contratos_validos)].copy()
-        else: return pd.DataFrame()
-    else: return pd.DataFrame()
+    df['Contrato_Padrao'] = df['Contrato'].astype(str).str.strip().str.upper()
+    if isinstance(filtros_contrato, str): df = df[df['Contrato_Padrao'] == filtros_contrato.upper()].copy()
+    elif isinstance(filtros_contrato, list) and filtros_contrato: df = df[df['Contrato_Padrao'].isin([c.upper() for c in filtros_contrato])].copy()
     
-    col_abertura = cols_map.get('abertura') or cols_map.get('data abertura')
-    if not col_abertura: return pd.DataFrame()
-    df['Abertura_dt'] = df[col_abertura]; df = df.dropna(subset=['Abertura_dt'])
-    if pd.api.types.is_datetime64tz_dtype(df['Abertura_dt']): df['Abertura_dt'] = df['Abertura_dt'].dt.tz_localize(None)
-    df['diff_segundos'] = (agora - df['Abertura_dt']).dt.total_seconds()
-    if not df.empty and df['diff_segundos'].median() < -100: df['diff_segundos'] = df['diff_segundos'] + 10800
-    df['horas_float'] = df['diff_segundos'] / 3600
-    def formatar_hhmmss(s):
-        if pd.isna(s): return "00:00:00"
-        val = int(s); val = 0 if val < 0 else val; m, s = divmod(val, 60); h, m = divmod(m, 60); return f"{h:02d}:{m:02d}:{s:02d}"
-    df['Horas Corridas'] = df['diff_segundos'].apply(formatar_hhmmss)
-    def classificar_sla(h): return "Crítico" if h > 24 else ("Fora do Prazo" if h > 8 else "No Prazo")
-    df['Status SLA'] = df['horas_float'].apply(classificar_sla)
-    col_tec = cols_map.get('técnicos') or cols_map.get('tecnicos'); df['Técnicos'] = pd.to_numeric(df[col_tec], errors='coerce').fillna(0)
-    col_afe = cols_map.get('afetação') or cols_map.get('afetacao'); df['Afetação'] = pd.to_numeric(df[col_afe], errors='coerce').fillna(0)
+    df['diff_s'] = (agora - df['Abertura_dt']).dt.total_seconds()
+    df['horas_float'] = df['diff_s'] / 3600
     
-    col_at = cols_map.get('at') or cols_map.get('area')
-    def definir_area_safe(row):
-        if str(row.get('Contrato_Padrao', '')).upper() == 'ABILITY_SJ':
-            val = row.get(col_at) if col_at else None
-            if pd.isna(val): return "Vale"
-            sigla = str(val).split('-')[0].strip().upper()
-            litoral = ['TG', 'PG', 'LZ', 'MK', 'MG', 'PN', 'AA', 'BV', 'FM', 'RP', 'AC', 'FP', 'BA', 'TQ', 'BO', 'BU', 'BC', 'PJ', 'PB', 'MR']
-            return "Litoral" if sigla in litoral else "Vale"
-        return row.get('Area', 'Geral')
-    df['Area'] = df.apply(definir_area_safe, axis=1)
+    def formatar_hms(s):
+        val = int(s) if pd.notna(s) else 0
+        m, s_res = divmod(val, 60); h, m_res = divmod(m, 60)
+        return f"{int(h):02d}:{int(m_res):02d}:{int(s_res):02d}"
+    df['Horas Corridas'] = df['diff_s'].apply(formatar_hms)
     
-    return df.sort_values(by='horas_float', ascending=False)
+    # NOVA LÓGICA DE SLA (B2B = 4H)
+    def calc_sla_status(row):
+        h = row['horas_float']
+        is_b2b = str(row.get('B2B', 'NÃO')).upper() == 'SIM'
+        limite_fora = 4 if is_b2b else 8
+        
+        if h > 24: return "Crítico"
+        elif h > limite_fora: return "Fora do Prazo"
+        else: return "No Prazo"
+        
+    df['Status SLA'] = df.apply(calc_sla_status, axis=1)
+    
+    def def_area(row):
+        if str(row['Contrato_Padrao']) == 'ABILITY_SJ' and pd.notna(row.get('AT')):
+            return "Litoral" if str(row['AT']).split('-')[0].strip().upper() in ['TG','PG','LZ','MK','MG','PN','AA','BV','FM','RP','AC','FP','BA','TQ','BO','BU','BC','PJ','PB','MR'] else "Vale"
+        return "Geral"
+    df['Area'] = df.apply(def_area, axis=1)
+    return df.sort_values('horas_float', ascending=False)
 
-def estilo_tabela(row):
-    h = row.get('horas_float', None); sla_color = '#dc2626' if h and h>24 else ('#d97706' if h and h>8 else ('#16a34a' if h else '#000'))
-    val_af = None
-    for k in ['Afetação', 'afetação', 'Afetacao']:
-        if k in row.index:
-            try: val_af = float(row[k]); break
-            except: pass
-    if val_af and val_af >= 100: sla_color = '#2563eb'
-    return sla_color
-
-def row_style_apply(row):
-    base_color = estilo_tabela(row); styles = [f'color: {base_color}; font-weight: 700; text-align: center; vertical-align: middle'] * len(row)
-    for i, col_name in enumerate(row.index):
-        val_str = str(row[col_name]).upper().strip()
-        if col_name == 'VIP' and val_str == 'SIM': styles[i] = 'background-color: #f0abfc; color: #86198f; font-weight: 900; text-align: center; border-radius: 6px; padding: 2px;'
-        elif col_name == 'Cond. Alto Valor' and val_str == 'SIM': styles[i] = 'background-color: #bef264; color: #365314; font-weight: 900; text-align: center; border-radius: 6px; padding: 2px;'
-        elif col_name == 'B2B' and val_str == 'SIM': styles[i] = 'background-color: #a78bfa; color: #4c1d95; font-weight: 900; text-align: center; border-radius: 6px; padding: 2px;'
+def highlight_rows(row):
+    h = row.get('horas_float', 0)
+    is_b2b = str(row.get('B2B', 'NÃO')).upper() == 'SIM'
+    limite_fora = 4 if is_b2b else 8
+    
+    tc = '#16a34a' # Verde
+    if h > 24: tc = '#dc2626' # Vermelho
+    elif h > limite_fora: tc = '#d97706' # Laranja
+    
+    if row.get('Afetação', 0) >= 100: tc = '#2563eb' # GV (Azul)
+    
+    styles = []
+    for col in row.index:
+        val = str(row[col]).upper().strip()
+        cell_style = f'color: {tc}; text-align: center; font-weight: 700;'
+        
+        # Cores de Fundo Específicas
+        if col == 'VIP' and val == 'SIM': cell_style += 'background-color: #f5d0fe; color: #86198f; border-radius: 4px;'
+        elif col == 'Cond. Alto Valor' and val == 'SIM': cell_style += 'background-color: #d9f99d; color: #365314; border-radius: 4px;'
+        elif col == 'B2B' and val == 'SIM': cell_style += 'background-color: #ddd6fe; color: #5b21b6; border-radius: 4px;'
+            
+        styles.append(cell_style)
     return styles
 
 def gerar_texto_gv(row, contrato):
-    cols_map = {c.lower().strip(): c for c in row.index}
-    def get_val(keys_list, default="00"):
-        if isinstance(keys_list, str): keys_list = [keys_list]
-        for k in keys_list:
-            if k in row.index: return str(row[k]).replace('.0', '') if pd.notna(row[k]) else default
-            k_lower = k.lower().strip()
-            if k_lower in cols_map: return str(row[cols_map[k_lower]]).replace('.0', '') if pd.notna(row[cols_map[k_lower]]) else default
-        return default
-    cidade = "N/I"
-    if 'Cidade_Real' in row.index and pd.notna(row['Cidade_Real']): cidade = str(row['Cidade_Real']).upper()
-    else:
-        at_full = str(row.get('AT', row.get('Area', 'N/I'))).strip().upper(); sigla_at = at_full.split('-')[0].strip() if '-' in at_full else at_full[:3]
-        mapa = { 'SJC': 'SÃO JOSÉ DOS CAMPOS', 'JAC': 'JACAREÍ', 'TAU': 'TAUBATÉ', 'GUA': 'GUARATINGUETÁ', 'PNO': 'PINDAMONHANGABA', 'CAR': 'CARAGUATATUBA', 'UBA': 'UBATUBA', 'SBO': 'SÃO SEBASTIÃO', 'ILH': 'ILHABELA' }
-        cidade = mapa.get(sigla_at, "VERIFICAR CIDADE")
-    try: dt_criacao = row['Abertura_dt'].strftime("%d/%m/%Y")
-    except: dt_criacao = str(row['Abertura_dt'])
-    try: hr_criacao = row['Abertura_dt'].strftime("%H:%M")
-    except: hr_criacao = ""
-    return f"""✅ *INFORMATIVO GRANDE VULTO*\n\n*{contrato.replace('_', ' ')}*\n\n{row['Ocorrência']} - FTTx\nORIGEM: {get_val(['Origem'], 'OLTM')}\nAT: {str(row.get('AT', row.get('Area', 'N/I')))}\nCIDADE: {cidade}\nQUANT. PRIMÁRIAS AFETADAS: {get_val(['Primárias', 'primarias'], 'N/I')}\nCABO: {get_val(['Cabo'], 'N/I')}\nAFETAÇÃO: {int(row['Afetação'])}\nBDs: {get_val(['BD', 'BDs'], 'N/I')}\nCRIAÇÃO: {dt_criacao}\nHORA: {hr_criacao}\nPROPENSOS-ANATEL: {get_val(['Propensos - Anatel'], '00')}\nRECLAMADOS-ANATEL: {get_val(['Reclamados - Anatel'], '00')}\nCLIENTE VIP:  {get_val(['VIP'], '00')}\nCLIENTE B2B:  {get_val(['B2B'], '00')}\nCOND. ALTO VALOR: {get_val(['Cond. Alto Valor'], '00')}\nDEFEITO:\nPRAZO:"""
+    try: dt = row['Abertura_dt'].strftime("%d/%m/%Y")
+    except: dt = str(row['Abertura_dt'])
+    try: hr = row['Abertura_dt'].strftime("%H:%M")
+    except: hr = ""
+    return f"""✅ *INFORMATIVO GRANDE VULTO*\n\n*{contrato}*\n\n{row['Ocorrência']} - FTTx\nORIGEM: {row.get('Origem','OLTM')}\nAT: {row.get('AT')}\nCIDADE: {row.get('Cidade_Real','N/I')}\nAFETAÇÃO: {int(row.get('Afetação',0))}\nCRIAÇÃO: {dt} {hr}\nVIP: {row.get('VIP','NÃO')}\nCOND. ALTO VALOR: {row.get('Cond. Alto Valor','NÃO')}"""
 
 def gerar_cards_mpl(kpis, contrato):
-    C_BG, C_BORDER = "#ffffff", "#e2e8f0"; C_TEXT, C_LABEL = "#1e293b", "#64748b"; C_RED, C_YELLOW, C_GREEN = "#dc2626", "#d97706", "#16a34a"
-    tem_regiao = (contrato == 'ABILITY_SJ'); h_total = 14 if tem_regiao else 11
-    fig, ax = plt.subplots(figsize=(12, h_total), dpi=200); fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
-    def draw_card_mobile(x, y, w, h, title, value, val_color=C_TEXT, alert=False):
-        card = patches.FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0,rounding_size=3", fc="white", ec=C_BORDER, lw=2, zorder=2); ax.add_patch(card); ax.text(x + w/2, y + h*0.82, title.upper(), ha='center', va='center', fontsize=18, color=C_LABEL, weight='bold', zorder=3); ax.text(x + w/2, y + h*0.4, str(value), ha='center', va='center', fontsize=55, color=val_color, weight='black', zorder=3)
-        if alert: ax.add_patch(patches.Circle((x + w - 4, y + h - 4), 2.5, color=C_RED, zorder=4)); ax.text(x + w - 4, y + h - 4, "!", color="white", fontsize=20, weight='bold', ha='center', va='center', zorder=5)
-    ax.text(50, 96, "SIGMA OPS", ha='center', fontsize=32, weight='black', color='#7c3aed'); hora = datetime.now().strftime("%H:%M"); ax.text(50, 92, f"{contrato} • {hora}", ha='center', fontsize=22, weight='bold', color='#475569')
-    y1 = 68; draw_card_mobile(2, y1, 46, 18, "Total", kpis['total']); draw_card_mobile(52, y1, 46, 18, "S/ Técnico", kpis['sem_tec'], C_TEXT, alert=(kpis['sem_tec']>0))
-    y2 = 42; w = 30; g = 3; draw_card_mobile(2, y2, w, 18, "Crítico (>24h)", kpis['sla_red'], C_RED); draw_card_mobile(2+w+g, y2, w, 18, "Fora Prazo", kpis['sla_yellow'], C_YELLOW); draw_card_mobile(2+2*(w+g), y2, w, 18, "No Prazo", kpis['sla_green'], C_GREEN)
-    if tem_regiao: y3 = 16; draw_card_mobile(2, y3, 46, 18, "Litoral", kpis.get('lit', 0)); draw_card_mobile(52, y3, 46, 18, "Vale", kpis.get('vale', 0))
+    C_BG, C_BORDER, C_TEXT, C_LABEL = "#ffffff", "#e2e8f0", "#1e293b", "#64748b"
+    C_RED, C_YELLOW, C_GREEN = "#dc2626", "#d97706", "#16a34a"
+    h_tot = 14 if contrato == 'ABILITY_SJ' else 11
+    fig, ax = plt.subplots(figsize=(12, h_tot), dpi=200); fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
+    def draw(x,y,w,h,t,v,col=C_TEXT):
+        ax.add_patch(patches.FancyBboxPatch((x,y),w,h,boxstyle="round,pad=0,rounding_size=3",fc="white",ec=C_BORDER,lw=2))
+        ax.text(x+w/2,y+h*0.8,t.upper(),ha='center',size=18,color=C_LABEL,weight='bold')
+        ax.text(x+w/2,y+h*0.4,str(v),ha='center',size=55,color=col,weight='black')
+    ax.text(50,96,"SIGMA OPS",ha='center',size=32,weight='black',color='#7c3aed'); ax.text(50,92,f"{contrato} • {datetime.now().strftime('%H:%M')}",ha='center',size=22,weight='bold',color='#475569')
+    draw(2,68,46,18,"Total",kpis['total']); draw(52,68,46,18,"S/ Técnico",kpis['sem_tec'])
+    w=30; g=3; draw(2,42,w,18,"Crítico",kpis['critico'],C_RED); draw(2+w+g,42,w,18,"Fora Pz",kpis['fora'],C_YELLOW); draw(2+2*(w+g),42,w,18,"No Prazo",kpis['no_prazo'],C_GREEN)
+    if contrato == 'ABILITY_SJ': draw(2,16,46,18,"Litoral",kpis['lit']); draw(52,16,46,18,"Vale",kpis['vale'])
     buf = io.BytesIO(); plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG); plt.close(fig); return buf.getvalue()
+
+def gerar_lista_mpl_from_view(df_view, col_order, contrato):
+    ITENS_POR_PAGINA = 20
+    cols = [c for c in col_order if c in df_view.columns and c not in ['horas_float', 'Status SLA']]
+    df_p = df_view[cols].copy().rename(columns={'Ocorrência': 'ID', 'Horas Corridas': 'Tempo', 'Cond. Alto Valor': 'A.V'})
+    
+    lista_imagens = []
+    total_linhas = len(df_p)
+    if total_linhas == 0: return lista_imagens
+        
+    num_paginas = (total_linhas + ITENS_POR_PAGINA - 1) // ITENS_POR_PAGINA
+    
+    for i in range(num_paginas):
+        inicio = i * ITENS_POR_PAGINA; fim = inicio + ITENS_POR_PAGINA
+        df_chunk = df_p.iloc[inicio:fim]; idx_chunk = df_view.iloc[inicio:fim]
+        
+        fig, ax = plt.subplots(figsize=(14, max(4, 3 + len(df_chunk)*0.8)), dpi=180)
+        ax.axis('off'); fig.patch.set_facecolor('white')
+        
+        titulo = f"SIGMA OPS: {contrato}\n{datetime.now().strftime('%d/%m • %H:%M')}"
+        if num_paginas > 1: titulo += f" (Pág {i+1}/{num_paginas})"
+            
+        plt.title(titulo, loc='center', pad=40, fontsize=28, weight='black', color='#1e293b')
+        tbl = ax.table(cellText=df_chunk.values.tolist(), colLabels=df_chunk.columns, cellLoc='center', loc='center')
+        tbl.auto_set_font_size(False); tbl.set_fontsize(12); tbl.scale(1.2, 3.0)
+        
+        for j in range(len(df_chunk.columns)): 
+            tbl[(0, j)].set_facecolor('#7c3aed'); tbl[(0, j)].set_text_props(color='white', weight='bold')
+            
+        for r_idx in range(len(df_chunk)):
+            row_orig = idx_chunk.iloc[r_idx]
+            h = row_orig.get('horas_float', 0)
+            is_b2b = str(row_orig.get('B2B', 'NÃO')).upper() == 'SIM'
+            limite_fora = 4 if is_b2b else 8
+            
+            c = '#16a34a'
+            if h > 24: c = '#dc2626'
+            elif h > limite_fora: c = '#d97706'
+            
+            if row_orig.get('Afetação', 0) >= 100: c = '#2563eb'
+                
+            for j in range(len(df_chunk.columns)): 
+                tbl[(r_idx+1, j)].set_text_props(color=c, weight='bold')
+                tbl[(r_idx+1, j)].set_edgecolor("#e2e8f0")
+                
+        buf = io.BytesIO(); plt.savefig(buf, format='jpg', dpi=180, bbox_inches='tight', facecolor='white'); plt.close(fig)
+        lista_imagens.append(buf.getvalue())
+    return lista_imagens
 
 def gerar_dashboard_gerencial(df_geral, contratos_list):
     C_BG, C_BAR, C_RED, C_GREEN = "#ffffff", "#7c3aed", "#dc2626", "#16a34a"; df_filtrado = df_geral.copy()
-    total_geral = len(df_filtrado); total_gv = len(df_filtrado[df_filtrado['Afetação'] >= 100]); total_fora = len(df_filtrado[df_filtrado['horas_float'] >= 8]); total_dentro = total_geral - total_fora
-    resumo = df_filtrado.groupby('Contrato_Padrao').agg(Total=('Ocorrência', 'count'), No_Prazo=('horas_float', lambda x: (x < 8).sum()), Fora_Prazo=('horas_float', lambda x: (x >= 8).sum()), Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()), VIPs=('VIP', lambda x: (x == 'SIM').sum()), Alto_Valor=('Cond. Alto Valor', lambda x: (x == 'SIM').sum()), B2B=('B2B', lambda x: (x == 'SIM').sum()), Criticos=('horas_float', lambda x: (x > 24).sum())).reset_index().sort_values('Total', ascending=False)
+    
+    # Agrupamento baseando-se na classificação textual correta (Respeitando B2B 4h vs 8h)
+    resumo = df_filtrado.groupby('Contrato_Padrao').agg(
+        Total=('Ocorrência', 'count'), 
+        No_Prazo=('Status SLA', lambda x: (x == 'No Prazo').sum()), 
+        Fora_Prazo=('Status SLA', lambda x: (x == 'Fora do Prazo').sum()), 
+        Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()), 
+        Criticos=('Status SLA', lambda x: (x == 'Crítico').sum())
+    ).reset_index().sort_values('Total', ascending=False)
+    
     fig, ax = plt.subplots(figsize=(14, 12), dpi=200); fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
     hora = datetime.now().strftime("%d/%m %H:%M"); ax.text(50, 96, "VISÃO CLUSTER", ha='center', fontsize=32, weight='black', color='#1e293b'); ax.text(50, 92, f"Consolidado SigmaOPS • {hora}", ha='center', fontsize=20, weight='bold', color='#7c3aed')
-    def draw_box(x, y, w, h, title, val, color, alert=False):
-        rect = patches.FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0,rounding_size=2", fc="white", ec="#cbd5e1", lw=2, zorder=2); ax.add_patch(rect); shadow = patches.FancyBboxPatch((x+0.5, y-0.5), w, h, boxstyle="round,pad=0,rounding_size=2", fc="#f1f5f9", ec="none", zorder=1); ax.add_patch(shadow); ax.text(x+w/2, y+h*0.8, title.upper(), ha='center', fontsize=14, color='#64748b', weight='bold', zorder=3); ax.text(x+w/2, y+h*0.35, str(val), ha='center', fontsize=40, color=color, weight='black', zorder=3)
-        if alert: ax.add_patch(patches.Circle((x + w - 3, y + h - 3), 2, color=C_RED, zorder=4)); ax.text(x + w - 3, y + h - 3, "!", color="white", fontsize=16, weight='bold', ha='center', va='center', zorder=5)
-    draw_box(5, 75, 42, 12, "Total de Casos", total_geral, "#1e293b"); draw_box(53, 75, 42, 12, "Grandes Vultos", total_gv, C_BAR, alert=(total_gv>0)); draw_box(5, 60, 42, 12, "Dentro do Prazo (<8h)", total_dentro, C_GREEN); draw_box(53, 60, 42, 12, "Fora do Prazo (>=8h)", total_fora, C_RED, alert=(total_fora>0))
-    y_start = 55; ax.text(50, y_start, "DETALHAMENTO POR CONTRATO", ha='center', fontsize=18, weight='bold', color='#333')
-    colunas = ["CONTRATO", "TOTAL", "NO PZ", "FORA PZ", "G. VULTO", "VIPS", "ALTO VALOR", "B2B", "CRÍTICO >24H"]
-    dados_tabela = [[row['Contrato_Padrao'], str(row['Total']), str(row['No_Prazo']), str(row['Fora_Prazo']), str(row['Grandes_Vultos']), str(row['VIPs']), str(row['Alto_Valor']), str(row['B2B']), str(row['Criticos'])] for _, row in resumo.iterrows()]
-    tbl = ax.table(cellText=dados_tabela, colLabels=colunas, loc='center', bbox=[0.05, 0.05, 0.9, 0.45]); tbl.auto_set_font_size(False); tbl.set_fontsize(11); tbl.scale(1, 2)
+    colunas = ["CONTRATO", "TOTAL", "NO PZ", "FORA PZ", "G. VULTO", "CRÍTICO >24H"]
+    dados = [[row['Contrato_Padrao'], str(row['Total']), str(row['No_Prazo']), str(row['Fora_Prazo']), str(row['Grandes_Vultos']), str(row['Criticos'])] for _, row in resumo.iterrows()]
+    tbl = ax.table(cellText=dados, colLabels=colunas, loc='center', bbox=[0.05, 0.05, 0.9, 0.45]); tbl.auto_set_font_size(False); tbl.set_fontsize(11); tbl.scale(1, 2)
     for (i, j), cell in tbl.get_celld().items():
-        if i == 0: cell.set_text_props(weight='bold', color='white'); cell.set_facecolor('#7c3aed'); cell.set_edgecolor('white')
+        if i == 0: cell.set_text_props(weight='bold', color='white'); cell.set_facecolor('#7c3aed')
         else: cell.set_edgecolor('#e2e8f0'); cell.set_text_props(weight='bold'); 
         if i % 2 == 0: cell.set_facecolor('#f8fafc')
-    ax.text(50, 2, "Gerado via SigmaOPS", ha='center', fontsize=12, color="#94a3b8"); buf = io.BytesIO(); plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG); plt.close(fig); return buf.getvalue()
-
-def gerar_lista_mpl_from_view(df_view, col_order, contrato):
-    ITENS_POR_PAGINA = 20; cols_to_use = [c for c in col_order if c not in ['horas_float', 'Status SLA']]; df_p = df_view[cols_to_use].copy(); rename_dict = {'Ocorrência': 'ID', 'Horas Corridas': 'Tempo', 'Cond. Alto Valor': 'A.V'}; df_p.rename(columns=rename_dict, inplace=True)
-    total_linhas = len(df_p); num_paginas = (total_linhas + ITENS_POR_PAGINA - 1) // ITENS_POR_PAGINA; lista_imagens = []
-    def desenhar_pagina(df_chunk, num_pag, total_pags):
-        fig_height = max(4, 3 + len(df_chunk)*0.8); fig, ax = plt.subplots(figsize=(14, fig_height), dpi=180); ax.axis('off'); fig.patch.set_facecolor('white')
-        hora = datetime.now().strftime('%d/%m • %H:%M'); titulo = f"SIGMA OPS: {contrato}\n{hora}"; 
-        if total_pags > 1: titulo += f"\n(Parte {num_pag}/{total_pags})"
-        plt.title(titulo, loc='center', pad=40, fontsize=28, weight='black', color='#1e293b')
-        tbl = ax.table(cellText=df_chunk.values.tolist(), colLabels=df_chunk.columns, cellLoc='center', loc='center'); tbl.auto_set_font_size(False); tbl.set_fontsize(12); tbl.scale(1.2, 3.0)
-        for j in range(len(df_chunk.columns)): cell = tbl[(0, j)]; cell.set_facecolor('#7c3aed'); cell.set_text_props(color='white', weight='bold'); cell.set_height(0.15)
-        for i in range(len(df_chunk)):
-            idx_real = df_chunk.index[i]; row_original = df_view.loc[idx_real]; c = estilo_tabela(row_original)
-            for j in range(len(df_chunk.columns)): cell = tbl[(i+1, j)]; cell.set_text_props(color=c, weight='bold'); cell.set_edgecolor("#e2e8f0"); cell.set_linewidth(1.5)
-        buf = io.BytesIO(); plt.savefig(buf, format='jpg', dpi=180, bbox_inches='tight', facecolor='white'); plt.close(fig); return buf.getvalue()
-    for i in range(num_paginas): inicio = i * ITENS_POR_PAGINA; fim = inicio + ITENS_POR_PAGINA; df_chunk = df_p.iloc[inicio:fim]; img_data = desenhar_pagina(df_chunk, i+1, num_paginas); lista_imagens.append(img_data)
-    return lista_imagens
+    buf = io.BytesIO(); plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG); plt.close(fig); return buf.getvalue()
 
 # ==============================================================================
-# 🖥️ FRONTEND - DASHBOARD COMPACTO
+# 📊 CORPO DO DASHBOARD
 # ==============================================================================
+df_raw, erro = carregar_dados_api()
 
-# --- MODO VOZ ---
-if st.query_params.get("mode") == "voz":
-    with st.spinner("Gerando..."):
-        df_raw, erro = carregar_dados_api()
-        if df_raw is not None:
-            df_geral = processar_regras_generico(df_raw, contratos_validos=df_raw['Contrato'].unique())
-            total = len(df_geral); criticos = len(df_geral[df_geral['horas_float'] > 24])
-            st.markdown(f"<div class='modo-leitura'>Resumo: {total} casos. {criticos} críticos.</div>", unsafe_allow_html=True); st.stop()
+if df_raw is not None:
+    if PERFIL == "admin": tab_op, tab_cl = st.tabs(["Operacional", "Cluster"])
+    else: tab_op = st.container(); tab_cl = None
 
-# --- HEADER SLIM ---
-st.markdown(f"""<div class="sigma-header"><div><p class="sigma-title">SigmaOPS</p></div><div><span class="sigma-clock">{datetime.now().strftime('%H:%M')}</span></div></div>""", unsafe_allow_html=True)
+    # --- ABA OPERACIONAL ---
+    with tab_op:
+        c_sel, c_ref = st.columns([5, 1], gap="small")
+        with c_sel:
+            if CONTRATO:
+                st.info(f"Visualizando: {CONTRATO}")
+                contrato_atual = CONTRATO
+            else:
+                contrato_atual = st.radio("Selecione o Contrato:", CONTRATOS_VALIDOS, horizontal=True, label_visibility="collapsed")
+        with c_ref:
+            if st.button("🔄 Atualizar", use_container_width=True): carregar_dados_api.clear(); st.rerun()
 
-with st.spinner("Sincronizando..."):
-    df_raw, erro_api = carregar_dados_api()
+        df_view = processar_dados(df_raw, contrato_atual)
+        
+        c_f1, c_f2 = st.columns(2)
+        with c_f1: f_reg = st.multiselect("Região", df_view['Area'].unique())
+        with c_f2: f_sla = st.multiselect("SLA", ["Crítico", "Fora do Prazo", "No Prazo"])
+        
+        if f_reg: df_view = df_view[df_view['Area'].isin(f_reg)]
+        if f_sla: df_view = df_view[df_view['Status SLA'].isin(f_sla)]
 
-if df_raw is None:
-    st.error(f"Falha na API: {erro_api}")
-    if st.button("🔄 Tentar Novamente"): carregar_dados_api.clear(); st.rerun()
-else:
-    col_contrato_raw = [c for c in df_raw.columns if str(c).lower().strip() in ['contrato', 'escritório']]
-    if col_contrato_raw:
-        todos_contratos = df_raw[col_contrato_raw[0]].astype(str).str.strip().str.upper().unique()
-        contratos_principais = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_PC_SC", "TELEMONT"]
-        opcoes_validas = [c for c in contratos_principais if c in todos_contratos]
+        # KPIs HTML
+        t = len(df_view)
+        k = {'total': t, 'sem_tec': len(df_view[df_view['Técnicos']==0]), 'critico': len(df_view[df_view['Status SLA']=='Crítico']), 'fora': len(df_view[df_view['Status SLA']=='Fora do Prazo']), 'no_prazo': len(df_view[df_view['Status SLA']=='No Prazo']), 'lit': len(df_view[df_view['Area']=='Litoral']), 'vale': len(df_view[df_view['Area']=='Vale'])}
+        
+        c_style = "background:white;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;padding:8px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;justify-content:center;height:70px;"
+        def p(v, c): return f"<span style='font-size:10px;font-weight:bold;color:{c};background:{c}15;padding:1px 4px;border-radius:4px;'>{v}</span>" if t>0 else ""
+        
+        html = f"""<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin-bottom:15px;">
+            <div style="{c_style}"><div style="font-size:11px;color:#64748b;">Total</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['total']}</div></div>
+            <div style="{c_style}"><div style="font-size:11px;color:#64748b;">S/ Técnico</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['sem_tec']} {p(f"{(k['sem_tec']/t*100):.0f}%", "#dc2626")}</div></div>
+            <div style="{c_style.replace('#7c3aed','#dc2626')}"><div style="font-size:11px;color:#64748b;">Crítico (>24h)</div><div style="font-size:18px;font-weight:800;color:#dc2626;">{k['critico']}</div></div>
+            <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">Fora Prazo</div><div style="font-size:18px;font-weight:800;color:#d97706;">{k['fora']}</div></div>
+            <div style="{c_style.replace('#7c3aed','#16a34a')}"><div style="font-size:11px;color:#64748b;">No Prazo</div><div style="font-size:18px;font-weight:800;color:#16a34a;">{k['no_prazo']}</div></div>"""
+        
+        if contrato_atual == 'ABILITY_SJ': html += f"""<div style="{c_style}"><div style="font-size:11px;color:#64748b;">Litoral</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['lit']}</div></div><div style="{c_style}"><div style="font-size:11px;color:#64748b;">Vale</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['vale']}</div></div>"""
+        st.markdown(html + "</div>", unsafe_allow_html=True)
 
-        if not opcoes_validas: st.warning("Nenhum contrato encontrado.")
-        else:
-            container_op = None; container_cluster = None
-            if USER_ROLE == "admin": tab_op, tab_ger = st.tabs(["Operacional", "Cluster"]); container_op = tab_op; container_cluster = tab_ger
-            else: container_op = st.container()
+        gv = len(df_view[df_view['Afetação']>=100])
+        if gv > 0:
+            st.markdown(f"<div class='alert-box'>🚨 {gv} GRANDE(S) VULTO(S) EM ABERTO</div>", unsafe_allow_html=True)
+            with st.expander("Ver Detalhes GV"):
+                for _, row in df_view[df_view['Afetação'] >= 100].iterrows(): st.code(gerar_texto_gv(row, contrato_atual), language="text")
 
-            with container_op:
-                # LINHA 1: MENU E FILTROS COMPACTOS
-                c_sel, c_filt1, c_filt2, c_refresh = st.columns([1.5, 1, 1, 0.5])
-                with c_sel: 
-                    # --- RESTAURAÇÃO: BOTÕES (RADIO GRID) ---
-                    contrato_selecionado = st.radio("Selecione:", opcoes_validas, horizontal=True, label_visibility="collapsed")
-                with c_refresh: 
-                    if st.button("🔄", help="Atualizar"): carregar_dados_api.clear(); st.rerun()
+        with st.expander("📂 Opções de Exportação"):
+            c1, c2 = st.columns(2)
+            try: c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg")
+            except: pass
+            
+            # GERAÇÃO DAS IMAGENS DE LISTA COM PAGINAÇÃO
+            cols_export = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
+            try: 
+                imgs = gerar_lista_mpl_from_view(df_view, cols_export, contrato_atual)
+                if imgs: 
+                    if len(imgs) == 1:
+                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                    else:
+                        for idx_img, img_bytes in enumerate(imgs):
+                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", use_container_width=True)
+            except: pass
 
-                df = processar_regras_generico(df_raw, filtrar_contrato=contrato_selecionado)
+        # --- EXIBIÇÃO DA TABELA CORRIGIDA ---
+        cols_visiveis = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
+        # Adiciona horas_float para garantir a lógica de cor, mas esconde visualmente depois
+        cols_para_logica = cols_visiveis + ['horas_float']
+        c_final = [c for c in cols_para_logica if c in df_view.columns]
+
+        st.dataframe(
+            df_view[c_final].style.apply(highlight_rows, axis=1), 
+            use_container_width=True, 
+            hide_index=True, 
+            height=600, 
+            column_config={
+                "Ocorrência": st.column_config.TextColumn("ID", width="small"),
+                "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"),
+                "horas_float": None # Oculta a coluna que não deve aparecer na interface
+            }
+        )
+
+    # --- ABA CLUSTER (Agrupamento Completo Conforme Imagem) ---
+    if tab_cl:
+        with tab_cl:
+            with st.form("form_cluster"):
+                c1, c2 = st.columns([5, 1])
+                with c1: sels = st.multiselect("Contratos:", CONTRATOS_VALIDOS, default=CONTRATOS_VALIDOS)
+                with c2: 
+                    st.write("")
+                    st.write("")
+                    st.form_submit_button("Atualizar Visão", use_container_width=True)
+            
+            if sels:
+                df_cl = processar_dados(df_raw, sels)
+                t_g = len(df_cl); t_gv = len(df_cl[df_cl['Afetação']>=100])
+                c_ok = len(df_cl[df_cl['Status SLA']=='No Prazo']); c_nok = len(df_cl[df_cl['Status SLA']!='No Prazo'])
                 
-                if df.empty: st.warning("Sem dados.")
-                else:
-                    # FILTROS DINÂMICOS
-                    f_area = []; f_sla = []
-                    with c_filt1: 
-                        if contrato_selecionado == 'ABILITY_SJ': f_area = st.multiselect("Região", df['Area'].unique(), placeholder="Região", label_visibility="collapsed")
-                    with c_filt2: f_sla = st.multiselect("SLA", ["Crítico", "Fora do Prazo", "No Prazo"], placeholder="SLA", label_visibility="collapsed")
-
-                    # KPIs COMPACTOS (GRID HTML)
-                    total = len(df); kpis = { 'total': total, 'sem_tec': len(df[df['Técnicos']==0]), 'sla_red': len(df[df['horas_float']>24]), 'sla_yellow': len(df[(df['horas_float']>8)&(df['horas_float']<=24)]), 'sla_green': len(df[df['horas_float']<=8]), 'lit': len(df[df['Area']=="Litoral"]), 'vale': len(df[df['Area']=="Vale"]) }
-                    
-                    # --- HTML INJECTION FOR METRICS ---
-                    card_style = "background:white;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;padding:8px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;justify-content:center;height:70px;"
-                    val_style = "font-size:18px;font-weight:800;color:#0f172a;line-height:1.2;"
-                    lbl_style = "font-size:11px;color:#64748b;margin-bottom:2px;"
-                    
-                    def get_delta_html(val, color): return f"<span style='font-size:10px;font-weight:bold;color:{color};background:{color}15;padding:1px 4px;border-radius:4px;'>{val}</span>"
-                    
-                    cards_html_list = []
-                    
-                    cards_html_list.append(f'<div style="{card_style}"><div style="{lbl_style}">Total</div><div style="{val_style}">{kpis["total"]}</div></div>')
-                    
-                    cards_html_list.append(f'<div style="{card_style}"><div style="{lbl_style}">S/ Técnico</div><div style="{val_style}">{kpis["sem_tec"]} {get_delta_html(f"{(kpis["sem_tec"]/total*100):.0f}%", "#dc2626")}</div></div>')
-                    
-                    cards_html_list.append(f'<div style="{card_style.replace("#7c3aed", "#dc2626")}"><div style="{lbl_style}">Crítico (>24h)</div><div style="{val_style}">{kpis["sla_red"]} {get_delta_html(f"{(kpis["sla_red"]/total*100):.0f}%", "#dc2626")}</div></div>')
-                    
-                    cards_html_list.append(f'<div style="{card_style.replace("#7c3aed", "#d97706")}"><div style="{lbl_style}">Fora do Prazo (>8h)</div><div style="{val_style}">{kpis["sla_yellow"]} {get_delta_html(f"{(kpis["sla_yellow"]/total*100):.0f}%", "#d97706")}</div></div>')
-                    
-                    cards_html_list.append(f'<div style="{card_style.replace("#7c3aed", "#16a34a")}"><div style="{lbl_style}">No Prazo</div><div style="{val_style}">{kpis["sla_green"]} {get_delta_html(f"{(kpis["sla_green"]/total*100):.0f}%", "#16a34a")}</div></div>')
-
-                    if contrato_selecionado == 'ABILITY_SJ':
-                        cards_html_list.append(f'<div style="{card_style}"><div style="{lbl_style}">Litoral</div><div style="{val_style}">{kpis["lit"]}</div></div>')
-                        cards_html_list.append(f'<div style="{card_style}"><div style="{lbl_style}">Vale</div><div style="{val_style}">{kpis["vale"]}</div></div>')
-
-                    html_kpis = f"""<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin-bottom:15px;">{''.join(cards_html_list)}</div>"""
-                    st.markdown(html_kpis, unsafe_allow_html=True)
-
-                    # ALERTA COMPACTO (GRANDE VULTO)
-                    df_gv = df[df['Afetação'] >= 100].copy()
-                    if not df_gv.empty:
-                        st.markdown(f"<div class='alert-box'>🚨 {len(df_gv)} GRANDE(S) VULTO(S) EM ABERTO</div>", unsafe_allow_html=True)
-                        with st.expander("Ver Detalhes GV"):
-                            for idx, row in df_gv.iterrows(): st.code(gerar_texto_gv(row, contrato_selecionado), language="text")
-
-                    # MENU DE EXPORTAÇÃO
-                    with st.expander("📂 Opções de Exportação (Imagens e Relatórios)"):
-                        col_dl1, col_dl2 = st.columns(2)
-                        nome_arq = (datetime.now()).strftime('%H%M')
-                        try: img_cards = gerar_cards_mpl(kpis, contrato_selecionado); col_dl1.download_button("Baixar Resumo (Cards)", img_cards, f"Resumo_{nome_arq}.jpg", "image/jpeg", width="stretch")
+                h_cl = f"""<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin-bottom:15px;">
+                    <div style="{c_style}"><div style="font-size:11px;color:#64748b;">Total Geral</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{t_g}</div></div>
+                    <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">GV</div><div style="font-size:18px;font-weight:800;color:#d97706;">{t_gv}</div></div>
+                    <div style="{c_style.replace('#7c3aed','#16a34a')}"><div style="font-size:11px;color:#64748b;">No Prazo</div><div style="font-size:18px;font-weight:800;color:#16a34a;">{c_ok}</div></div>
+                    <div style="{c_style.replace('#7c3aed','#dc2626')}"><div style="font-size:11px;color:#64748b;">Fora Prazo</div><div style="font-size:18px;font-weight:800;color:#dc2626;">{c_nok}</div></div>
+                </div>"""
+                st.markdown(h_cl, unsafe_allow_html=True)
+                
+                with st.expander("Baixar Imagem"):
+                    if st.button("Gerar Dashboard"):
+                        try: st.download_button("Download", gerar_dashboard_gerencial(df_cl, sels), f"cluster_{nome_arq}.jpg", "image/jpeg")
                         except: pass
-                        cols_exist = [c for c in ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos', 'horas_float'] if c in df.columns]
-                        try:
-                            cols_exp = [c for c in cols_exist if c != 'horas_float']; lista_imagens = gerar_lista_mpl_from_view(df, cols_exp, contrato_selecionado)
-                            if lista_imagens:
-                                if len(lista_imagens) == 1: col_dl2.download_button("Baixar Lista", lista_imagens[0], f"Lista_{nome_arq}.jpg", "image/jpeg", width="stretch")
-                                else:
-                                    for i, img_data in enumerate(lista_imagens): col_dl2.download_button(f"Baixar Parte {i+1}", img_data, f"Lista_{nome_arq}_P{i+1}.jpg", "image/jpeg", width="stretch")
-                        except Exception as e: st.error(f"Erro lista: {e}")
-
-                    # A TABELA
-                    df_show = df.copy()
-                    if f_area: df_show = df_show[df_show['Area'].isin(f_area)]
-                    if f_sla: df_show = df_show[df_show['Status SLA'].isin(f_sla)]
-                    if 'AT' in df_show.columns: df_show['AT'] = df_show['AT'].astype(str).str[:2]
-
-                    st.dataframe(
-                        df_show[cols_exist].style.apply(row_style_apply, axis=1), 
-                        height=500, width=None, use_container_width=True,
-                        column_config={"Ocorrência": st.column_config.TextColumn("ID", width="small"), "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"), "horas_float": None}
-                    )
-
-            if container_cluster:
-                with container_cluster:
-                    with st.form("form_cluster"): 
-                        filtro_contratos = st.multiselect("Contratos:", options=opcoes_validas, default=opcoes_validas, placeholder="Selecione...")
-                        aplicar = st.form_submit_button("Atualizar Visão", use_container_width=True) # Botão largo
-                    
-                    if filtro_contratos:
-                        df_geral = processar_regras_generico(df_raw, contratos_validos=filtro_contratos)
-                        if not df_geral.empty:
-                            total_geral = len(df_geral); total_gv = len(df_geral[df_geral['Afetação'] >= 100])
-                            
-                            # --- HTML GRID FOR CLUSTER (UNIFIED DESIGN) ---
-                            # Same style as Operational
-                            card_style = "background:white;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;padding:8px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;justify-content:center;height:70px;"
-                            val_style = "font-size:18px;font-weight:800;color:#0f172a;line-height:1.2;"
-                            lbl_style = "font-size:11px;color:#64748b;margin-bottom:2px;"
-                            def get_delta_html(val, color): return f"<span style='font-size:10px;font-weight:bold;color:{color};background:{color}15;padding:1px 4px;border-radius:4px;'>{val}</span>"
-
-                            no_prazo_count = len(df_geral[df_geral['horas_float'] < 8])
-                            fora_prazo_count = len(df_geral[df_geral['horas_float'] >= 8])
-
-                            # No indentation in HTML strings to avoid bugs
-                            html_kpis_cluster = f"""
-                            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin-bottom:15px;">
-                                <div style="{card_style}">
-                                    <div style="{lbl_style}">Total Geral</div>
-                                    <div style="{val_style}">{total_geral}</div>
-                                </div>
-                                <div style="{card_style.replace('#7c3aed', '#d97706')}">
-                                    <div style="{lbl_style}">GV</div>
-                                    <div style="{val_style}">{total_gv} {get_delta_html('Fora do Prazo' if total_gv > 0 else 'OK', '#d97706')}</div>
-                                </div>
-                                <div style="{card_style.replace('#7c3aed', '#16a34a')}">
-                                    <div style="{lbl_style}">No Prazo</div>
-                                    <div style="{val_style}">{no_prazo_count}</div>
-                                </div>
-                                <div style="{card_style.replace('#7c3aed', '#dc2626')}">
-                                    <div style="{lbl_style}">Fora Prazo</div>
-                                    <div style="{val_style}">{fora_prazo_count} {get_delta_html('Crítico', '#dc2626')}</div>
-                                </div>
-                            </div>
-                            """
-                            st.markdown(html_kpis_cluster, unsafe_allow_html=True)
-                            
-                            with st.expander("Baixar Imagem do Cluster"):
-                                try: img_dashboard = gerar_dashboard_gerencial(df_geral, filtro_contratos); st.download_button("Baixar Dashboard", img_dashboard, f"Dash_{nome_arq}.jpg", "image/jpeg")
-                                except: pass
-
-                            st.markdown("##### Detalhamento")
-                            resumo = df_geral.groupby('Contrato_Padrao').agg(Total=('Ocorrência', 'count'), No_Prazo=('horas_float', lambda x: (x < 8).sum()), Fora_Prazo=('horas_float', lambda x: (x >= 8).sum()), Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()), VIPs=('VIP', lambda x: (x == 'SIM').sum()), Condos=('Cond. Alto Valor', lambda x: (x == 'SIM').sum()), B2B=('B2B', lambda x: (x == 'SIM').sum()), Criticos=('horas_float', lambda x: (x > 24).sum())).reset_index().sort_values('Total', ascending=False)
-                            st.dataframe(resumo.style.set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
-                        else: st.info("Sem dados.")
-    else: st.error("Erro dados.")
+                
+                # Agrupamento exato solicitado na imagem (Aba Cluster) baseando-se no texto do SLA gerado
+                resumo = df_cl.groupby('Contrato_Padrao').agg(
+                    Total=('Ocorrência', 'count'), 
+                    No_Prazo=('Status SLA', lambda x: (x == 'No Prazo').sum()), 
+                    Fora_Prazo=('Status SLA', lambda x: (x == 'Fora do Prazo').sum()), 
+                    Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()), 
+                    VIPs=('VIP', lambda x: (x == 'SIM').sum()), 
+                    Condos=('Cond. Alto Valor', lambda x: (x == 'SIM').sum()), 
+                    B2B=('B2B', lambda x: (x == 'SIM').sum()), 
+                    Criticos=('Status SLA', lambda x: (x == 'Crítico').sum())
+                ).reset_index().sort_values('Total', ascending=False)
+                
+                st.dataframe(resumo, use_container_width=True, hide_index=True)
+            else:
+                st.warning("Selecione pelo menos um contrato.")
+else:
+    st.error("Erro ao carregar dados da API.")
