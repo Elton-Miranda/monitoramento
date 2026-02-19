@@ -9,6 +9,7 @@ import matplotlib.patches as patches
 import io
 import hashlib
 import sqlite3
+import bcrypt
 
 # ==============================================================================
 # 🌍 1. CONFIGURAÇÃO DE AMBIENTE
@@ -36,7 +37,7 @@ CONTRATOS_VALIDOS = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_
 nome_arq = datetime.now().strftime('%H%M')
 
 # ==============================================================================
-# 🔐 SEGURANÇA E BANCO DE DADOS
+# 🔐 SEGURANÇA E BANCO DE DADOS (BCRYPT)
 # ==============================================================================
 def get_secret(section, key):
     try: return st.secrets[section][key]
@@ -61,12 +62,16 @@ def db_actions(action, u=None, p=None, c=None, r=None):
     conn = get_db_connection()
     try:
         if action == "add":
-            ph = hashlib.sha256(f"{p}{SESSION_SALT}".encode()).hexdigest()
+            ph = bcrypt.hashpw(p.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             conn.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)", (u.upper(), ph, 'user', c, 0, datetime.now().strftime("%Y-%m-%d")))
             conn.commit(); return True, "Solicitação enviada. Aguarde liberação."
         elif action == "verify":
-            ph = hashlib.sha256(f"{p}{SESSION_SALT}".encode()).hexdigest()
-            return conn.execute("SELECT role, contract, approved FROM users WHERE username=? AND password_hash=?", (u.upper(), ph)).fetchone()
+            res = conn.execute("SELECT role, contract, approved, password_hash FROM users WHERE username=?", (u.upper(),)).fetchone()
+            if res:
+                stored_hash = res[3]
+                if bcrypt.checkpw(p.encode('utf-8'), stored_hash.encode('utf-8')):
+                    return res 
+            return None
         elif action == "pending":
             return pd.read_sql_query("SELECT username, contract FROM users WHERE approved = 0", conn)
         elif action == "approve":
@@ -86,26 +91,13 @@ init_db()
 if "logged_in" not in st.session_state:
     st.session_state.update({"logged_in": False, "username": None, "role": None, "allowed_contract": None})
 
-# Verificação F5 (URL Token)
-if not st.session_state["logged_in"]:
-    qp = st.query_params
-    if qp.get("u") and qp.get("t"):
-        raw = f"{qp['u']}{SESSION_SALT}{datetime.now().strftime('%Y-%m-%d')}"
-        if qp["t"] == hashlib.sha256(raw.encode()).hexdigest():
-            st.session_state.update({
-                "logged_in": True, "username": qp["u"], 
-                "role": qp.get("r"), "allowed_contract": qp.get("c") if qp.get("c") != "None" else None
-            })
-
 def confirm_login(u, r, c):
     st.session_state.update({"logged_in": True, "username": u, "role": r, "allowed_contract": c})
-    raw = f"{u}{SESSION_SALT}{datetime.now().strftime('%Y-%m-%d')}"
-    st.query_params["u"] = u; st.query_params["r"] = r; st.query_params["c"] = str(c)
-    st.query_params["t"] = hashlib.sha256(raw.encode()).hexdigest()
     st.rerun()
 
-# 🛑 TELA DE LOGIN (Interrompe o código aqui se não estiver logado)
 if not st.session_state["logged_in"]:
+    st.query_params.clear()
+    
     st.markdown("""
     <style>
         .stApp { background-color: #ffffff; }
@@ -130,7 +122,8 @@ if not st.session_state["logged_in"]:
                     r_p = get_secret("admin", "password") or "admin"
                     
                     if u == r_u.upper() and p == r_p:
-                        confirm_login(u, "admin", None)
+                        # Conta mestre recebe a role "master"
+                        confirm_login(u, "master", None)
                     else:
                         res = db_actions("verify", u=u, p=p)
                         if res:
@@ -148,10 +141,10 @@ if not st.session_state["logged_in"]:
                         if ok: st.success(msg)
                         else: st.error(msg)
                     else: st.error("Preencha todos os campos.")
-    st.stop() # Mata a execução. O dashboard não carrega até logar.
+    st.stop()
 
 # ==============================================================================
-# 🚀 APLICAÇÃO PRINCIPAL (SÓ RODA APÓS LOGIN)
+# 🚀 APLICAÇÃO PRINCIPAL
 # ==============================================================================
 USUARIO = st.session_state["username"]
 PERFIL = st.session_state["role"]
@@ -189,7 +182,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER HTML ---
 hora_atual = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%H:%M")
 st.markdown(f'<div class="sigma-header"><div class="sigma-title">SigmaOPS</div><div><span class="sigma-label">Última Atualização</span><span class="sigma-time">{hora_atual}</span></div></div>', unsafe_allow_html=True)
 
@@ -198,7 +190,8 @@ with st.sidebar:
     st.markdown(f"### 👤 {USUARIO}")
     if CONTRATO: st.markdown(f"📍 **{CONTRATO}**")
     
-    if PERFIL == "admin":
+    # SOMENTE o perfil "master" (Você no secrets.toml) vê o painel de aprovação
+    if PERFIL == "master":
         st.divider()
         st.markdown("#### 🛡️ Aprovação de Acessos")
         pend = db_actions("pending")
@@ -222,12 +215,11 @@ with st.sidebar:
         st.markdown('<div class="sidebar-footer">', unsafe_allow_html=True)
         if st.button("🚪 Sair do Sistema"):
             st.session_state.clear()
-            st.query_params.clear()
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================================================================
-# 🧠 DADOS E LÓGICA DE SLA B2B
+# 🧠 DADOS (CACHE OTIMIZADO) E EXPORTAÇÃO
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def carregar_base_cnl():
@@ -280,12 +272,10 @@ def processar_dados(df_raw, filtros_contrato):
         return f"{int(h):02d}:{int(m_res):02d}:{int(s_res):02d}"
     df['Horas Corridas'] = df['diff_s'].apply(formatar_hms)
     
-    # NOVA LÓGICA DE SLA (B2B = 4H)
     def calc_sla_status(row):
         h = row['horas_float']
         is_b2b = str(row.get('B2B', 'NÃO')).upper() == 'SIM'
         limite_fora = 4 if is_b2b else 8
-        
         if h > 24: return "Crítico"
         elif h > limite_fora: return "Fora do Prazo"
         else: return "No Prazo"
@@ -304,18 +294,17 @@ def highlight_rows(row):
     is_b2b = str(row.get('B2B', 'NÃO')).upper() == 'SIM'
     limite_fora = 4 if is_b2b else 8
     
-    tc = '#16a34a' # Verde
-    if h > 24: tc = '#dc2626' # Vermelho
-    elif h > limite_fora: tc = '#d97706' # Laranja
+    tc = '#16a34a' 
+    if h > 24: tc = '#dc2626' 
+    elif h > limite_fora: tc = '#d97706' 
     
-    if row.get('Afetação', 0) >= 100: tc = '#2563eb' # GV (Azul)
+    if row.get('Afetação', 0) >= 100: tc = '#2563eb'
     
     styles = []
     for col in row.index:
         val = str(row[col]).upper().strip()
         cell_style = f'color: {tc}; text-align: center; font-weight: 700;'
         
-        # Cores de Fundo Específicas
         if col == 'VIP' and val == 'SIM': cell_style += 'background-color: #f5d0fe; color: #86198f; border-radius: 4px;'
         elif col == 'Cond. Alto Valor' and val == 'SIM': cell_style += 'background-color: #d9f99d; color: #365314; border-radius: 4px;'
         elif col == 'B2B' and val == 'SIM': cell_style += 'background-color: #ddd6fe; color: #5b21b6; border-radius: 4px;'
@@ -395,8 +384,6 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
 
 def gerar_dashboard_gerencial(df_geral, contratos_list):
     C_BG, C_BAR, C_RED, C_GREEN = "#ffffff", "#7c3aed", "#dc2626", "#16a34a"; df_filtrado = df_geral.copy()
-    
-    # Agrupamento baseando-se na classificação textual correta (Respeitando B2B 4h vs 8h)
     resumo = df_filtrado.groupby('Contrato_Padrao').agg(
         Total=('Ocorrência', 'count'), 
         No_Prazo=('Status SLA', lambda x: (x == 'No Prazo').sum()), 
@@ -422,16 +409,21 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
 df_raw, erro = carregar_dados_api()
 
 if df_raw is not None:
-    if PERFIL == "admin": tab_op, tab_cl = st.tabs(["Operacional", "Cluster"])
-    else: tab_op = st.container(); tab_cl = None
+    # Master e Admin podem ver a aba Cluster
+    if PERFIL in ["master", "admin"]: 
+        tab_op, tab_cl = st.tabs(["Operacional", "Cluster"])
+    else: 
+        tab_op = st.container(); tab_cl = None
 
     # --- ABA OPERACIONAL ---
     with tab_op:
         c_sel, c_ref = st.columns([5, 1], gap="small")
         with c_sel:
-            if CONTRATO:
+            # Se for Usuário Comum, prende na visualização do contrato dele
+            if CONTRATO and PERFIL not in ["master", "admin"]:
                 st.info(f"Visualizando: {CONTRATO}")
                 contrato_atual = CONTRATO
+            # Se for Master ou Admin, libera escolher qualquer contrato
             else:
                 contrato_atual = st.radio("Selecione o Contrato:", CONTRATOS_VALIDOS, horizontal=True, label_visibility="collapsed")
         with c_ref:
@@ -474,7 +466,6 @@ if df_raw is not None:
             try: c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg")
             except: pass
             
-            # GERAÇÃO DAS IMAGENS DE LISTA COM PAGINAÇÃO
             cols_export = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
             try: 
                 imgs = gerar_lista_mpl_from_view(df_view, cols_export, contrato_atual)
@@ -486,9 +477,7 @@ if df_raw is not None:
                             c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", use_container_width=True)
             except: pass
 
-        # --- EXIBIÇÃO DA TABELA CORRIGIDA ---
         cols_visiveis = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
-        # Adiciona horas_float para garantir a lógica de cor, mas esconde visualmente depois
         cols_para_logica = cols_visiveis + ['horas_float']
         c_final = [c for c in cols_para_logica if c in df_view.columns]
 
@@ -500,11 +489,11 @@ if df_raw is not None:
             column_config={
                 "Ocorrência": st.column_config.TextColumn("ID", width="small"),
                 "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"),
-                "horas_float": None # Oculta a coluna que não deve aparecer na interface
+                "horas_float": None 
             }
         )
 
-    # --- ABA CLUSTER (Agrupamento Completo Conforme Imagem) ---
+    # --- ABA CLUSTER ---
     if tab_cl:
         with tab_cl:
             with st.form("form_cluster"):
@@ -533,7 +522,6 @@ if df_raw is not None:
                         try: st.download_button("Download", gerar_dashboard_gerencial(df_cl, sels), f"cluster_{nome_arq}.jpg", "image/jpeg")
                         except: pass
                 
-                # Agrupamento exato solicitado na imagem (Aba Cluster) baseando-se no texto do SLA gerado
                 resumo = df_cl.groupby('Contrato_Padrao').agg(
                     Total=('Ocorrência', 'count'), 
                     No_Prazo=('Status SLA', lambda x: (x == 'No Prazo').sum()), 
