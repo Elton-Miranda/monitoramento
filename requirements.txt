@@ -5,3 +5,4 @@ matplotlib
 undetected-chromedriver
 requests
 openpyxl
+bcrypt
