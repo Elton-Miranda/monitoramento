@@ -1,11 +1,13 @@
 import requests
 import pandas as pd
 import json
+import os
 
 # Configurações
-URL = "https://telecom.hermeticshell.org/api/view"
+URL = os.getenv("API_URL", "https://telecom.hermeticshell.org/api/view")
+API_KEY = os.getenv("API_KEY", "a6e41c2a5f544c1ca9dbf6e9bfc1e8e5")
 HEADERS = {
-    "X-API-Key": "a6e41c2a5f544c1ca9dbf6e9bfc1e8e5",
+    "X-API-Key": API_KEY,
     "Content-Type": "application/json"
 }
 

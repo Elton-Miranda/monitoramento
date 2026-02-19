@@ -1,0 +1,26 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - API_URL=https://telecom.hermeticshell.org/api/view
+      - API_KEY=a6e41c2a5f544c1ca9dbf6e9bfc1e8e5
+    networks:
+      - monitoramento
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARED_TUNNEL_TOKEN}", "--url", "http://app:8501"]
+    depends_on:
+      - app
+    profiles:
+      - cloudflared
+    networks:
+      - monitoramento
+
+networks:
+  monitoramento:
+    driver: bridge
