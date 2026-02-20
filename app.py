@@ -7,9 +7,10 @@ import requests
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
-import hashlib
 import sqlite3
 import bcrypt
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 # ==============================================================================
 # 🌍 1. CONFIGURAÇÃO DE AMBIENTE
@@ -23,9 +24,15 @@ except AttributeError:
 st.set_page_config(
     page_title="SigmaOPS", 
     page_icon="⚡", 
-    layout="wide", 
-    initial_sidebar_state="expanded" 
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
+
+# Inicialização do Firebase
+if not firebase_admin._apps:
+	cred = credentials.Certificate('serviceAccountKey.json')
+	firebase_admin.initialize_app(cred)
+db = firestore.client()
 
 # ==============================================================================
 # ⚙️ CONSTANTES GLOBAIS
@@ -115,30 +122,46 @@ if not st.session_state["logged_in"]:
         t1, t2 = st.tabs(["Acessar", "Cadastrar"])
         with t1:
             with st.form("login_form"):
-                u = st.text_input("Usuário").strip().upper()
-                p = st.text_input("Senha", type="password")
+                email = st.text_input("E-mail").strip()
+                passwd = st.text_input("Senha", type="password")
                 if st.form_submit_button("Entrar"):
-                    r_u = get_secret("admin", "user") or "ADMIN"
-                    r_p = get_secret("admin", "password") or "admin"
-                    
-                    if u == r_u.upper() and p == r_p:
-                        confirm_login(u, "master", None)
+                    if email and passwd:
+                        user_ref = db.collection("users").document(email)
+                        user_doc = user_ref.get()
+                        if user_doc.exists:
+                            user_data = user_doc.to_dict()
+                            senha_hash = user_data["hash"].encode()
+                            if bcrypt.checkpw(passwd.encode(), senha_hash):
+                                confirm_login(user_data['name'], user_data['role'], user_data['contract'])
+                            else:
+                                st.error("Senha incorreta!")
+                        else:
+                            st.error("Usuário não encontrado!")
                     else:
-                        res = db_actions("verify", u=u, p=p)
-                        if res:
-                            if res[2] == 1: confirm_login(u, res[0], res[1])
-                            else: st.warning("Aguardando aprovação do administrador.")
-                        else: st.error("Dados inválidos.")
+                        st.warning("Preencha todos os campos.")
         with t2:
             with st.form("reg_form"):
-                ru = st.text_input("Usuário Desejado").strip().upper()
-                rc = st.selectbox("Área", CONTRATOS_VALIDOS)
-                rp = st.text_input("Senha", type="password")
+                name = st.text_input("Nome").strip()
+                email = st.text_input("Email").strip()
+                contract = st.selectbox("Área", CONTRATOS_VALIDOS)
+                passwd = st.text_input("Senha", type="password")
+                hashed = bcrypt.hashpw(passwd.encode(), bcrypt.gensalt())
                 if st.form_submit_button("Solicitar Acesso"):
-                    if ru and rp:
-                        ok, msg = db_actions("add", u=ru, p=rp, c=rc)
-                        if ok: st.success(msg)
-                        else: st.error(msg)
+                    if name and email and passwd:
+                        user_ref = db.collection("users").document(email)
+                        if user_ref.get().exists:
+                            st.error("Usuário já existe!")
+                        else:
+                            user_ref.set({
+                                "name": name,
+                                "email": email,
+                                "hash": hashed.decode(),
+                                "role": "user",
+                                "contract": contract,
+                                "created_at": firestore.SERVER_TIMESTAMP,
+                                "approved": False
+                            })
+                            st.success("Solicitação enviada. Aguarde liberação.")
                     else: st.error("Preencha todos os campos.")
     st.stop()
 
@@ -192,18 +215,24 @@ with st.sidebar:
     if PERFIL == "master":
         st.divider()
         st.markdown("#### 🛡️ Aprovação de Acessos")
-        pend = db_actions("pending")
-        if not pend.empty:
-            st.warning(f"🔔 {len(pend)} Pendente(s)")
-            for i, row in pend.iterrows():
+        user_ref = db.collection("users").where("approved", "==", False ).get()
+        os.system('clear')
+        if user_ref:
+            st.warning(f"🔔 {len(user_ref)} Pendente(s)")
+            for user in user_ref:
+                row = user.to_dict() or {}
                 with st.container(border=True):
-                    st.markdown(f"**{row['username']}** | {row['contract']}")
-                    r_sel = st.selectbox("Perfil:", ["user", "admin"], key=f"r_{row['username']}", label_visibility="collapsed")
+                    st.markdown(f"**{row.get('name', '')}** | {row.get('contract', '')}")
+                    r_sel = st.selectbox("Perfil:", ["user", "admin"], key=f"r_{user.id}", label_visibility="collapsed")
                     c1, c2 = st.columns(2)
-                    if c1.button("✅ Aprovar", key=f"y_{row['username']}", use_container_width=True): 
-                        db_actions("approve", u=row['username'], r=r_sel); st.rerun()
-                    if c2.button("❌ Recusar", key=f"n_{row['username']}", use_container_width=True): 
-                        db_actions("delete", u=row['username']); st.rerun()
+                    if c1.button("✅ Aprovar", key=f"y_{user.id}", width="stretch"): 
+                        user.reference.update({"approved": True, "role": r_sel})
+                        st.toast(f"Usuário {row.get('name')} aprovado!")
+                        st.rerun()
+                    if c2.button("❌ Recusar", key=f"n_{user.id}", width="stretch"): 
+                        user.reference.delete()
+                        st.toast(f"Usuário {row.get('name')} removido!")
+                        st.rerun()
         else:
             st.success("Tudo limpo! ✅")
 
@@ -268,7 +297,7 @@ def carregar_dados_api():
     except Exception as e: return None, str(e)
 
 def processar_dados(df_raw, filtros_contrato):
-    agora = datetime.utcnow() - timedelta(hours=3)
+    agora = datetime.now() - timedelta(hours=3)
     df = df_raw.copy()
     df_cnl = carregar_base_cnl()
     if df_cnl is not None:
@@ -466,7 +495,7 @@ if df_raw is not None:
             else:
                 contrato_atual = st.radio("Selecione o Contrato:", CONTRATOS_VALIDOS, horizontal=True, label_visibility="collapsed")
         with c_ref:
-            if st.button("🔄 Atualizar", use_container_width=True): carregar_dados_api.clear(); st.rerun()
+            if st.button("🔄 Atualizar", width="stretch"): carregar_dados_api.clear(); st.rerun()
 
         df_view = processar_dados(df_raw, contrato_atual)
         
@@ -482,11 +511,11 @@ if df_raw is not None:
         k = {'total': t, 'sem_tec': len(df_view[df_view['Técnicos']==0]), 'critico': len(df_view[df_view['Status SLA']=='Crítico']), 'fora': len(df_view[df_view['Status SLA']=='Fora do Prazo']), 'no_prazo': len(df_view[df_view['Status SLA']=='No Prazo']), 'lit': len(df_view[df_view['Area']=='Litoral']), 'vale': len(df_view[df_view['Area']=='Vale'])}
         
         c_style = "background:white;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;padding:8px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;justify-content:center;height:70px;"
-        def p(v, c): return f"<span style='font-size:10px;font-weight:bold;color:{c};background:{c}15;padding:1px 4px;border-radius:4px;'>{v}</span>" if t>0 else ""
+        def password(v, c): return f"<span style='font-size:10px;font-weight:bold;color:{c};background:{c}15;padding:1px 4px;border-radius:4px;'>{v}</span>" if t>0 else ""
         
         html = f"""<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin-bottom:15px;">
             <div style="{c_style}"><div style="font-size:11px;color:#64748b;">Total</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['total']}</div></div>
-            <div style="{c_style}"><div style="font-size:11px;color:#64748b;">S/ Técnico</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['sem_tec']} {p(f"{(k['sem_tec']/t*100):.0f}%", "#dc2626")}</div></div>
+            <div style="{c_style}"><div style="font-size:11px;color:#64748b;">S/ Técnico</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['sem_tec']} {password(f"{(k['sem_tec']/t*100):.0f}%", "#dc2626")}</div></div>
             <div style="{c_style.replace('#7c3aed','#dc2626')}"><div style="font-size:11px;color:#64748b;">Crítico (>24h)</div><div style="font-size:18px;font-weight:800;color:#dc2626;">{k['critico']}</div></div>
             <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">Fora Prazo</div><div style="font-size:18px;font-weight:800;color:#d97706;">{k['fora']}</div></div>
             <div style="{c_style.replace('#7c3aed','#16a34a')}"><div style="font-size:11px;color:#64748b;">No Prazo</div><div style="font-size:18px;font-weight:800;color:#16a34a;">{k['no_prazo']}</div></div>"""
@@ -504,7 +533,7 @@ if df_raw is not None:
             c1, c2 = st.columns(2)
             try: 
                 # AQUI FOI CORRIGIDO: Botão agora usa 100% do tamanho
-                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", width="stretch")
             except: pass
             
             cols_export = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
@@ -512,10 +541,10 @@ if df_raw is not None:
                 imgs = gerar_lista_mpl_from_view(df_view, cols_export, contrato_atual)
                 if imgs: 
                     if len(imgs) == 1:
-                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", width="stretch")
                     else:
                         for idx_img, img_bytes in enumerate(imgs):
-                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", use_container_width=True)
+                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", width="stretch")
             except: pass
 
         cols_visiveis = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
@@ -524,7 +553,7 @@ if df_raw is not None:
 
         st.dataframe(
             df_view[c_final].style.apply(highlight_rows, axis=1), 
-            use_container_width=True, 
+            width="stretch", 
             hide_index=True, 
             height=600, 
             column_config={
@@ -543,7 +572,7 @@ if df_raw is not None:
                 with c2: 
                     st.write("")
                     st.write("")
-                    st.form_submit_button("Atualizar Visão", use_container_width=True)
+                    st.form_submit_button("Atualizar Visão", width="stretch")
             
             if sels:
                 df_cl = processar_dados(df_raw, sels)
@@ -584,7 +613,7 @@ if df_raw is not None:
                     'Criticos': 'Críticos (>24h)'
                 }).reset_index().sort_values('Total', ascending=False)
                 
-                st.dataframe(resumo, use_container_width=True, hide_index=True)
+                st.dataframe(resumo, width="stretch", hide_index=True)
             else:
                 st.warning("Selecione pelo menos um contrato.")
 else:

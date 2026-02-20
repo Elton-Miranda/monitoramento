@@ -1,5 +1,6 @@
 .streamlit/secrets.toml
 .env
+serviceAccountKey.json
 key.pem
 cert.pem
 *.log
