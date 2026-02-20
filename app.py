@@ -37,7 +37,7 @@ CONTRATOS_VALIDOS = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_
 nome_arq = datetime.now().strftime('%H%M')
 
 # ==============================================================================
-# 🔐 SEGURANÇA E BANCO DE DADOS (BCRYPT)
+# 🔐 SEGURANÇA E BANCO DE DADOS
 # ==============================================================================
 def get_secret(section, key):
     try: return st.secrets[section][key]
@@ -86,7 +86,7 @@ def db_actions(action, u=None, p=None, c=None, r=None):
 init_db()
 
 # ==============================================================================
-# 🚪 LÓGICA DE LOGIN (SISTEMA DE BARREIRA)
+# 🚪 LÓGICA DE LOGIN
 # ==============================================================================
 if "logged_in" not in st.session_state:
     st.session_state.update({"logged_in": False, "username": None, "role": None, "allowed_contract": None})
@@ -122,7 +122,6 @@ if not st.session_state["logged_in"]:
                     r_p = get_secret("admin", "password") or "admin"
                     
                     if u == r_u.upper() and p == r_p:
-                        # Conta mestre recebe a role "master"
                         confirm_login(u, "master", None)
                     else:
                         res = db_actions("verify", u=u, p=p)
@@ -190,7 +189,6 @@ with st.sidebar:
     st.markdown(f"### 👤 {USUARIO}")
     if CONTRATO: st.markdown(f"📍 **{CONTRATO}**")
     
-    # SOMENTE o perfil "master" (Você no secrets.toml) vê o painel de aprovação
     if PERFIL == "master":
         st.divider()
         st.markdown("#### 🛡️ Aprovação de Acessos")
@@ -240,12 +238,31 @@ def carregar_dados_api():
             data = response.json()
             if 'ocorrencias' in data:
                 df = pd.DataFrame(data['ocorrencias'])
-                rename_map = { 'ocorrencia': 'Ocorrência', 'data_abertura': 'Abertura', 'contrato': 'Contrato', 'cnl': 'CNL', 'at': 'AT', 'afetacao': 'Afetação', 'vip': 'VIP', 'cond_alto_valor': 'Cond. Alto Valor', 'b2b_avancado': 'B2B', 'tecnicos': 'Técnicos', 'origem': 'Origem' }
+                rename_map = { 
+                    'ocorrencia': 'Ocorrência', 'data_abertura': 'Abertura', 'contrato': 'Contrato', 
+                    'cnl': 'CNL', 'at': 'AT', 'afetacao': 'Afetação', 'vip': 'VIP', 
+                    'cond_alto_valor': 'Cond. Alto Valor', 'b2b_avancado': 'B2B', 
+                    'tecnicos': 'Técnicos', 'origem': 'Origem',
+                    'cabo': 'Cabo', 'primarias': 'Primárias', 'bd': 'BD',
+                    'propenso_anatel': 'Propensos - Anatel', 'reclamado_anatel': 'Reclamados - Anatel'
+                }
                 df.rename(columns=rename_map, inplace=True)
                 df['Abertura_dt'] = pd.to_datetime(df['Abertura'], errors='coerce')
                 if 'Técnicos' in df.columns: df['Técnicos'] = df['Técnicos'].apply(lambda x: len(x) if isinstance(x, list) else 0)
+                
+                def formatar_flag(val):
+                    if pd.isna(val): return 'NÃO'
+                    s = str(val).upper().strip()
+                    if s in ['TRUE', 'SIM', 'S', 'YES']: return 'SIM'
+                    try:
+                        return 'SIM' if float(val) > 0 else 'NÃO'
+                    except:
+                        return 'NÃO'
+
                 for col in ['VIP', 'Cond. Alto Valor', 'B2B']:
-                    if col in df.columns: df[col] = df[col].apply(lambda x: 'SIM' if str(x).upper() in ['TRUE', 'SIM', '1', 'S', 'YES'] else 'NÃO')
+                    if col in df.columns: 
+                        df[col] = df[col].apply(formatar_flag)
+                        
                 return df, None
         return None, f"Erro {response.status_code}"
     except Exception as e: return None, str(e)
@@ -284,7 +301,7 @@ def processar_dados(df_raw, filtros_contrato):
     
     def def_area(row):
         if str(row['Contrato_Padrao']) == 'ABILITY_SJ' and pd.notna(row.get('AT')):
-            return "Litoral" if str(row['AT']).split('-')[0].strip().upper() in ['TG','PG','LZ','MK','MG','PN','AA','BV','FM','RP','AC','FP','BA','TQ','BO','BU','BC','PJ','PB','MR'] else "Vale"
+            return "Litoral" if str(row['AT']).split('-')[0].strip().upper() in ['TG','PG','LZ','MK','MG','PN','AA','BV','FM','RP','AC','FP','BA','TQ','BO','BU','BC','PJ','PB','MR','MA'] else "Vale"
         return "Geral"
     df['Area'] = df.apply(def_area, axis=1)
     return df.sort_values('horas_float', ascending=False)
@@ -314,10 +331,35 @@ def highlight_rows(row):
 
 def gerar_texto_gv(row, contrato):
     try: dt = row['Abertura_dt'].strftime("%d/%m/%Y")
-    except: dt = str(row['Abertura_dt'])
+    except: dt = ""
     try: hr = row['Abertura_dt'].strftime("%H:%M")
     except: hr = ""
-    return f"""✅ *INFORMATIVO GRANDE VULTO*\n\n*{contrato}*\n\n{row['Ocorrência']} - FTTx\nORIGEM: {row.get('Origem','OLTM')}\nAT: {row.get('AT')}\nCIDADE: {row.get('Cidade_Real','N/I')}\nAFETAÇÃO: {int(row.get('Afetação',0))}\nCRIAÇÃO: {dt} {hr}\nVIP: {row.get('VIP','NÃO')}\nCOND. ALTO VALOR: {row.get('Cond. Alto Valor','NÃO')}"""
+    
+    def get_val(col, default=""):
+        val = row.get(col)
+        return str(val).strip() if pd.notna(val) and str(val).strip() != "" and str(val).strip() != "nan" else default
+
+    return f"""✅ *INFORMATIVO GRANDE VULTO*
+
+*{contrato}*
+
+{get_val('Ocorrência')} - FTTx
+ORIGEM: {get_val('Origem')}
+AT: {get_val('AT')}
+CIDADE: {get_val('Cidade_Real')}
+QUANT. PRIMÁRIAS AFETADAS: {get_val('Primárias')}
+CABO: {get_val('Cabo')}
+AFETAÇÃO: {int(row.get('Afetação', 0))}
+BDs: {get_val('BD')}
+CRIAÇÃO: {dt}
+HORA: {hr}
+PROPENSOS-ANATEL: {get_val('Propensos - Anatel')}
+RECLAMADOS-ANATEL: {get_val('Reclamados - Anatel')}
+CLIENTE VIP:  {get_val('VIP', 'NÃO')}
+CLIENTE B2B:  {get_val('B2B', 'NÃO')}
+COND. ALTO VALOR: {get_val('Cond. Alto Valor', 'NÃO')}
+DEFEITO:
+PRAZO:"""
 
 def gerar_cards_mpl(kpis, contrato):
     C_BG, C_BORDER, C_TEXT, C_LABEL = "#ffffff", "#e2e8f0", "#1e293b", "#64748b"
@@ -330,7 +372,7 @@ def gerar_cards_mpl(kpis, contrato):
         ax.text(x+w/2,y+h*0.4,str(v),ha='center',size=55,color=col,weight='black')
     ax.text(50,96,"SIGMA OPS",ha='center',size=32,weight='black',color='#7c3aed'); ax.text(50,92,f"{contrato} • {datetime.now().strftime('%H:%M')}",ha='center',size=22,weight='bold',color='#475569')
     draw(2,68,46,18,"Total",kpis['total']); draw(52,68,46,18,"S/ Técnico",kpis['sem_tec'])
-    w=30; g=3; draw(2,42,w,18,"Crítico",kpis['critico'],C_RED); draw(2+w+g,42,w,18,"Fora Pz",kpis['fora'],C_YELLOW); draw(2+2*(w+g),42,w,18,"No Prazo",kpis['no_prazo'],C_GREEN)
+    w=30; g=3; draw(2,42,w,18,"Crítico",kpis['critico'],C_RED); draw(2+w+g,42,w,18,"Fora do Prazo",kpis['fora'],C_YELLOW); draw(2+2*(w+g),42,w,18,"No Prazo",kpis['no_prazo'],C_GREEN)
     if contrato == 'ABILITY_SJ': draw(2,16,46,18,"Litoral",kpis['lit']); draw(52,16,46,18,"Vale",kpis['vale'])
     buf = io.BytesIO(); plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG); plt.close(fig); return buf.getvalue()
 
@@ -394,7 +436,7 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
     
     fig, ax = plt.subplots(figsize=(14, 12), dpi=200); fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
     hora = datetime.now().strftime("%d/%m %H:%M"); ax.text(50, 96, "VISÃO CLUSTER", ha='center', fontsize=32, weight='black', color='#1e293b'); ax.text(50, 92, f"Consolidado SigmaOPS • {hora}", ha='center', fontsize=20, weight='bold', color='#7c3aed')
-    colunas = ["CONTRATO", "TOTAL", "NO PZ", "FORA PZ", "G. VULTO", "CRÍTICO >24H"]
+    colunas = ["CONTRATO", "TOTAL", "No Prazo", "Fora do Prazo", "G. VULTO", "CRÍTICO >24H"]
     dados = [[row['Contrato_Padrao'], str(row['Total']), str(row['No_Prazo']), str(row['Fora_Prazo']), str(row['Grandes_Vultos']), str(row['Criticos'])] for _, row in resumo.iterrows()]
     tbl = ax.table(cellText=dados, colLabels=colunas, loc='center', bbox=[0.05, 0.05, 0.9, 0.45]); tbl.auto_set_font_size(False); tbl.set_fontsize(11); tbl.scale(1, 2)
     for (i, j), cell in tbl.get_celld().items():
@@ -409,7 +451,6 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
 df_raw, erro = carregar_dados_api()
 
 if df_raw is not None:
-    # Master e Admin podem ver a aba Cluster
     if PERFIL in ["master", "admin"]: 
         tab_op, tab_cl = st.tabs(["Operacional", "Cluster"])
     else: 
@@ -419,11 +460,9 @@ if df_raw is not None:
     with tab_op:
         c_sel, c_ref = st.columns([5, 1], gap="small")
         with c_sel:
-            # Se for Usuário Comum, prende na visualização do contrato dele
             if CONTRATO and PERFIL not in ["master", "admin"]:
                 st.info(f"Visualizando: {CONTRATO}")
                 contrato_atual = CONTRATO
-            # Se for Master ou Admin, libera escolher qualquer contrato
             else:
                 contrato_atual = st.radio("Selecione o Contrato:", CONTRATOS_VALIDOS, horizontal=True, label_visibility="collapsed")
         with c_ref:
@@ -463,7 +502,9 @@ if df_raw is not None:
 
         with st.expander("📂 Opções de Exportação"):
             c1, c2 = st.columns(2)
-            try: c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg")
+            try: 
+                # AQUI FOI CORRIGIDO: Botão agora usa 100% do tamanho
+                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
             except: pass
             
             cols_export = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
@@ -506,14 +547,19 @@ if df_raw is not None:
             
             if sels:
                 df_cl = processar_dados(df_raw, sels)
-                t_g = len(df_cl); t_gv = len(df_cl[df_cl['Afetação']>=100])
-                c_ok = len(df_cl[df_cl['Status SLA']=='No Prazo']); c_nok = len(df_cl[df_cl['Status SLA']!='No Prazo'])
+                
+                t_g = len(df_cl)
+                t_gv = len(df_cl[df_cl['Afetação']>=100])
+                c_ok = len(df_cl[df_cl['Status SLA']=='No Prazo'])
+                c_fora = len(df_cl[df_cl['Status SLA']=='Fora do Prazo'])
+                c_crit = len(df_cl[df_cl['Status SLA']=='Crítico'])
                 
                 h_cl = f"""<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin-bottom:15px;">
                     <div style="{c_style}"><div style="font-size:11px;color:#64748b;">Total Geral</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{t_g}</div></div>
                     <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">GV</div><div style="font-size:18px;font-weight:800;color:#d97706;">{t_gv}</div></div>
                     <div style="{c_style.replace('#7c3aed','#16a34a')}"><div style="font-size:11px;color:#64748b;">No Prazo</div><div style="font-size:18px;font-weight:800;color:#16a34a;">{c_ok}</div></div>
-                    <div style="{c_style.replace('#7c3aed','#dc2626')}"><div style="font-size:11px;color:#64748b;">Fora Prazo</div><div style="font-size:18px;font-weight:800;color:#dc2626;">{c_nok}</div></div>
+                    <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">Fora Prazo</div><div style="font-size:18px;font-weight:800;color:#d97706;">{c_fora}</div></div>
+                    <div style="{c_style.replace('#7c3aed','#dc2626')}"><div style="font-size:11px;color:#64748b;">Críticos (>24h)</div><div style="font-size:18px;font-weight:800;color:#dc2626;">{c_crit}</div></div>
                 </div>"""
                 st.markdown(h_cl, unsafe_allow_html=True)
                 
@@ -528,10 +574,15 @@ if df_raw is not None:
                     Fora_Prazo=('Status SLA', lambda x: (x == 'Fora do Prazo').sum()), 
                     Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()), 
                     VIPs=('VIP', lambda x: (x == 'SIM').sum()), 
-                    Condos=('Cond. Alto Valor', lambda x: (x == 'SIM').sum()), 
+                    Cond_Alto_Valor=('Cond. Alto Valor', lambda x: (x == 'SIM').sum()), 
                     B2B=('B2B', lambda x: (x == 'SIM').sum()), 
                     Criticos=('Status SLA', lambda x: (x == 'Crítico').sum())
-                ).reset_index().sort_values('Total', ascending=False)
+                ).rename(columns={
+                    'No_Prazo': 'No Prazo',
+                    'Fora_Prazo': 'Fora Prazo',
+                    'Grandes_Vultos': 'Grandes Vultos',
+                    'Criticos': 'Críticos (>24h)'
+                }).reset_index().sort_values('Total', ascending=False)
                 
                 st.dataframe(resumo, use_container_width=True, hide_index=True)
             else:
