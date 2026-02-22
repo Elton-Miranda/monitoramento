@@ -29,8 +29,17 @@ st.set_page_config(
 
 # Inicialização do Firebase
 if not firebase_admin._apps:
-	cred = credentials.Certificate('serviceAccountKey.json')
-	firebase_admin.initialize_app(cred)
+    if os.path.exists('serviceAccountKey.json'):
+        # 1. RODA LOCAL (Acha o arquivo no seu servidor)
+        cred = credentials.Certificate('serviceAccountKey.json')
+    else:
+        # 2. RODA NA NUVEM (Puxa do painel Secrets do Streamlit)
+        firebase_cred = dict(st.secrets["firebase"])
+        firebase_cred["private_key"] = firebase_cred["private_key"].replace("\\n", "\n")
+        cred = credentials.Certificate(firebase_cred)
+        
+    firebase_admin.initialize_app(cred)
+
 db = firestore.client()
 
 # ==============================================================================
