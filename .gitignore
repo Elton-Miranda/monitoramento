@@ -1,8 +1,8 @@
 .streamlit/secrets.toml
 .env
 serviceAccountKey.json
-key.pem
-cert.pem
 *.log
 __pycache__/
+.venv/
+.streamlit/
 *.pyc

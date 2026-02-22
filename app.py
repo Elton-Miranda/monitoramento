@@ -7,7 +7,6 @@ import requests
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
-import sqlite3
 import bcrypt
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -53,44 +52,6 @@ def get_secret(section, key):
 API_URL = get_secret("api", "url") or ""
 API_HEADERS = dict(st.secrets["api"].get("headers", {})) if get_secret("api", "headers") else {}
 SESSION_SALT = get_secret("security", "session_salt") or "sigma_master_key_2026"
-
-def get_db_connection():
-    return sqlite3.connect(DB_FILE, check_same_thread=False)
-
-def init_db():
-    try:
-        conn = get_db_connection()
-        conn.execute('''CREATE TABLE IF NOT EXISTS users 
-                     (username TEXT PRIMARY KEY, password_hash TEXT, role TEXT, contract TEXT, approved INTEGER, created_at TEXT)''')
-        conn.commit(); conn.close()
-    except: pass
-
-def db_actions(action, u=None, p=None, c=None, r=None):
-    conn = get_db_connection()
-    try:
-        if action == "add":
-            ph = bcrypt.hashpw(p.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-            conn.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)", (u.upper(), ph, 'user', c, 0, datetime.now().strftime("%Y-%m-%d")))
-            conn.commit(); return True, "Solicitação enviada. Aguarde liberação."
-        elif action == "verify":
-            res = conn.execute("SELECT role, contract, approved, password_hash FROM users WHERE username=?", (u.upper(),)).fetchone()
-            if res:
-                stored_hash = res[3]
-                if bcrypt.checkpw(p.encode('utf-8'), stored_hash.encode('utf-8')):
-                    return res 
-            return None
-        elif action == "pending":
-            return pd.read_sql_query("SELECT username, contract FROM users WHERE approved = 0", conn)
-        elif action == "approve":
-            conn.execute("UPDATE users SET approved = 1, role = ? WHERE username = ?", (r, u))
-            conn.commit()
-        elif action == "delete":
-            conn.execute("DELETE FROM users WHERE username = ?", (u,))
-            conn.commit()
-    except Exception as e: return False, str(e)
-    finally: conn.close()
-
-init_db()
 
 # ==============================================================================
 # 🚪 LÓGICA DE LOGIN
@@ -193,8 +154,10 @@ st.markdown("""
     div[data-testid="stButton"] button { background-color: #7c3aed !important; color: white !important; font-weight: 700 !important; border: none !important; }
     .sidebar-footer button { background-color: #fee2e2 !important; color: #991b1b !important; border: 1px solid #fecaca !important; width: 100%; }
     
-    div[role="radiogroup"] label { background-color: white !important; border: 1px solid #e2e8f0; font-weight: 600; color: #64748b; padding: 8px 16px; border-radius: 6px; transition: all 0.2s; }
-    div[role="radiogroup"] label:has(input:checked) { background-color: #7c3aed !important; color: white !important; border-color: #7c3aed; }
+    div[role="radiogroup"] label { background-color: white !important; border: 1px solid #e2e8f0; font-weight: 600; padding: 8px 16px; border-radius: 6px; transition: all 0.2s; }
+    div[role="radiogroup"] label p { color: #64748b !important; }
+    div[role="radiogroup"] label:has(input:checked) { background-color: #7c3aed !important; border-color: #7c3aed !important; }
+    div[role="radiogroup"] label:has(input:checked) p { color: white !important; font-weight: 800 !important; }
     div[role="radiogroup"] label > div:first-child { display: none !important; }
     
     .stMultiSelect [data-baseweb="tag"] { background-color: #7c3aed !important; color: white !important; }
@@ -279,6 +242,10 @@ def carregar_dados_api():
                 df['Abertura_dt'] = pd.to_datetime(df['Abertura'], errors='coerce')
                 if 'Técnicos' in df.columns: df['Técnicos'] = df['Técnicos'].apply(lambda x: len(x) if isinstance(x, list) else 0)
                 
+                # --- FORÇA A AFETAÇÃO A SER NÚMERO INTEIRO ---
+                if 'Afetação' in df.columns:
+                    df['Afetação'] = pd.to_numeric(df['Afetação'], errors='coerce').fillna(0).astype(int)
+                
                 def formatar_flag(val):
                     if pd.isna(val): return 'NÃO'
                     s = str(val).upper().strip()
@@ -293,11 +260,13 @@ def carregar_dados_api():
                         df[col] = df[col].apply(formatar_flag)
                         
                 return df, None
-        return None, f"Erro {response.status_code}"
+            return None, f"Erro {response.status_code}"
     except Exception as e: return None, str(e)
 
 def processar_dados(df_raw, filtros_contrato):
-    agora = datetime.now() - timedelta(hours=3)
+    # 1. Pega apenas a hora atual local (Sem subtrair 3 horas!)
+    agora = datetime.now().replace(tzinfo=None)
+    
     df = df_raw.copy()
     df_cnl = carregar_base_cnl()
     if df_cnl is not None:
@@ -309,13 +278,18 @@ def processar_dados(df_raw, filtros_contrato):
     if isinstance(filtros_contrato, str): df = df[df['Contrato_Padrao'] == filtros_contrato.upper()].copy()
     elif isinstance(filtros_contrato, list) and filtros_contrato: df = df[df['Contrato_Padrao'].isin([c.upper() for c in filtros_contrato])].copy()
     
-    df['diff_s'] = (agora - df['Abertura_dt']).dt.total_seconds()
+    # 2. Limpa o fuso horário da API para garantir que a conta bata perfeitamente
+    df['Abertura_dt'] = pd.to_datetime(df['Abertura'], errors='coerce').dt.tz_localize(None)
+    
+    # 3. Calcula a diferença e trava em zero só para evitar pequenos delays de milissegundos
+    df['diff_s'] = (agora - df['Abertura_dt']).dt.total_seconds().clip(lower=0)
     df['horas_float'] = df['diff_s'] / 3600
     
     def formatar_hms(s):
         val = int(s) if pd.notna(s) else 0
         m, s_res = divmod(val, 60); h, m_res = divmod(m, 60)
         return f"{int(h):02d}:{int(m_res):02d}:{int(s_res):02d}"
+        
     df['Horas Corridas'] = df['diff_s'].apply(formatar_hms)
     
     def calc_sla_status(row):
@@ -332,6 +306,7 @@ def processar_dados(df_raw, filtros_contrato):
         if str(row['Contrato_Padrao']) == 'ABILITY_SJ' and pd.notna(row.get('AT')):
             return "Litoral" if str(row['AT']).split('-')[0].strip().upper() in ['TG','PG','LZ','MK','MG','PN','AA','BV','FM','RP','AC','FP','BA','TQ','BO','BU','BC','PJ','PB','MR','MA'] else "Vale"
         return "Geral"
+        
     df['Area'] = df.apply(def_area, axis=1)
     return df.sort_values('horas_float', ascending=False)
 
@@ -454,26 +429,55 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
     return lista_imagens
 
 def gerar_dashboard_gerencial(df_geral, contratos_list):
-    C_BG, C_BAR, C_RED, C_GREEN = "#ffffff", "#7c3aed", "#dc2626", "#16a34a"; df_filtrado = df_geral.copy()
+    df_filtrado = df_geral.copy()
     resumo = df_filtrado.groupby('Contrato_Padrao').agg(
         Total=('Ocorrência', 'count'), 
         No_Prazo=('Status SLA', lambda x: (x == 'No Prazo').sum()), 
         Fora_Prazo=('Status SLA', lambda x: (x == 'Fora do Prazo').sum()), 
         Grandes_Vultos=('Afetação', lambda x: (x >= 100).sum()), 
+        VIPs=('VIP', lambda x: (x == 'SIM').sum()), 
+        Cond_Alto_Valor=('Cond. Alto Valor', lambda x: (x == 'SIM').sum()), 
+        B2B=('B2B', lambda x: (x == 'SIM').sum()), 
         Criticos=('Status SLA', lambda x: (x == 'Crítico').sum())
-    ).reset_index().sort_values('Total', ascending=False)
+    ).rename(columns={
+        'No_Prazo': 'No Prazo',
+        'Fora_Prazo': 'Fora Prazo',
+        'Grandes_Vultos': 'G. Vulto',
+        'Cond_Alto_Valor': 'Alto Valor',
+        'Criticos': 'Críticos >24h'
+    }).reset_index().sort_values('Total', ascending=False)
     
-    fig, ax = plt.subplots(figsize=(14, 12), dpi=200); fig.patch.set_facecolor(C_BG); ax.axis('off'); ax.set_xlim(0, 100); ax.set_ylim(0, 100)
-    hora = datetime.now().strftime("%d/%m %H:%M"); ax.text(50, 96, "VISÃO CLUSTER", ha='center', fontsize=32, weight='black', color='#1e293b'); ax.text(50, 92, f"Consolidado SigmaOPS • {hora}", ha='center', fontsize=20, weight='bold', color='#7c3aed')
-    colunas = ["CONTRATO", "TOTAL", "No Prazo", "Fora do Prazo", "G. VULTO", "CRÍTICO >24H"]
-    dados = [[row['Contrato_Padrao'], str(row['Total']), str(row['No_Prazo']), str(row['Fora_Prazo']), str(row['Grandes_Vultos']), str(row['Criticos'])] for _, row in resumo.iterrows()]
-    tbl = ax.table(cellText=dados, colLabels=colunas, loc='center', bbox=[0.05, 0.05, 0.9, 0.45]); tbl.auto_set_font_size(False); tbl.set_fontsize(11); tbl.scale(1, 2)
-    for (i, j), cell in tbl.get_celld().items():
-        if i == 0: cell.set_text_props(weight='bold', color='white'); cell.set_facecolor('#7c3aed')
-        else: cell.set_edgecolor('#e2e8f0'); cell.set_text_props(weight='bold'); 
-        if i % 2 == 0: cell.set_facecolor('#f8fafc')
-    buf = io.BytesIO(); plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG); plt.close(fig); return buf.getvalue()
+    resumo.rename(columns={'Contrato_Padrao': 'Contrato'}, inplace=True)
 
+    fig, ax = plt.subplots(figsize=(16, max(4, 3 + len(resumo)*0.8)), dpi=200)
+    ax.axis('off')
+    fig.patch.set_facecolor('white')
+    
+    hora = datetime.now().strftime("%d/%m • %H:%M")
+    plt.title(f"VISÃO CLUSTER\nConsolidado SigmaOPS • {hora}", loc='center', pad=40, fontsize=28, weight='black', color='#1e293b')
+    
+    tbl = ax.table(cellText=resumo.values.tolist(), colLabels=resumo.columns, cellLoc='center', loc='center')
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(11)
+    tbl.scale(1.2, 3.0)
+    
+    # FORÇAR COR NO CABEÇALHO PARA NÃO FICAR BRANCO NO BRANCO
+    for (i, j), cell in tbl.get_celld().items():
+        if i == 0: 
+            cell.set_facecolor('#7c3aed')
+            cell.get_text().set_color('white')
+            cell.get_text().set_weight('bold')
+        else: 
+            cell.set_edgecolor('#e2e8f0')
+            cell.get_text().set_weight('bold')
+            cell.get_text().set_color('#1e293b')
+            if i % 2 == 0: 
+                cell.set_facecolor('#f8fafc')
+                
+    buf = io.BytesIO()
+    plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor='white')
+    plt.close(fig)
+    return buf.getvalue()
 # ==============================================================================
 # 📊 CORPO DO DASHBOARD
 # ==============================================================================
@@ -510,17 +514,22 @@ if df_raw is not None:
         t = len(df_view)
         k = {'total': t, 'sem_tec': len(df_view[df_view['Técnicos']==0]), 'critico': len(df_view[df_view['Status SLA']=='Crítico']), 'fora': len(df_view[df_view['Status SLA']=='Fora do Prazo']), 'no_prazo': len(df_view[df_view['Status SLA']=='No Prazo']), 'lit': len(df_view[df_view['Area']=='Litoral']), 'vale': len(df_view[df_view['Area']=='Vale'])}
         
-        c_style = "background:white;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;padding:8px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;justify-content:center;height:70px;"
-        def password(v, c): return f"<span style='font-size:10px;font-weight:bold;color:{c};background:{c}15;padding:1px 4px;border-radius:4px;'>{v}</span>" if t>0 else ""
+        # Aumentei a altura para 80px e adicionei espaçamento
+        c_style = "background:white;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;padding:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;justify-content:center;height:80px;"
+        
+        # O int() força a remoção das casas decimais
+        def badge(num, total, cor): 
+            if total == 0: return ""
+            return f"<span style='font-size:11px;font-weight:bold;color:{cor};background:{cor}15;padding:2px 6px;border-radius:4px;margin-left:8px;vertical-align:middle;'>{int((num/total)*100)}%</span>"
         
         html = f"""<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin-bottom:15px;">
             <div style="{c_style}"><div style="font-size:11px;color:#64748b;">Total</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['total']}</div></div>
-            <div style="{c_style}"><div style="font-size:11px;color:#64748b;">S/ Técnico</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['sem_tec']} {password(f"{(k['sem_tec']/t*100):.0f}%", "#dc2626")}</div></div>
-            <div style="{c_style.replace('#7c3aed','#dc2626')}"><div style="font-size:11px;color:#64748b;">Crítico (>24h)</div><div style="font-size:18px;font-weight:800;color:#dc2626;">{k['critico']}</div></div>
-            <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">Fora Prazo</div><div style="font-size:18px;font-weight:800;color:#d97706;">{k['fora']}</div></div>
-            <div style="{c_style.replace('#7c3aed','#16a34a')}"><div style="font-size:11px;color:#64748b;">No Prazo</div><div style="font-size:18px;font-weight:800;color:#16a34a;">{k['no_prazo']}</div></div>"""
+            <div style="{c_style}"><div style="font-size:11px;color:#64748b;">S/ Técnico</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['sem_tec']} {badge(k['sem_tec'], t, '#dc2626')}</div></div>
+            <div style="{c_style.replace('#7c3aed','#dc2626')}"><div style="font-size:11px;color:#64748b;">Crítico (>24h)</div><div style="font-size:18px;font-weight:800;color:#dc2626;">{k['critico']} {badge(k['critico'], t, '#dc2626')}</div></div>
+            <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">Fora Prazo</div><div style="font-size:18px;font-weight:800;color:#d97706;">{k['fora']} {badge(k['fora'], t, '#d97706')}</div></div>
+            <div style="{c_style.replace('#7c3aed','#16a34a')}"><div style="font-size:11px;color:#64748b;">No Prazo</div><div style="font-size:18px;font-weight:800;color:#16a34a;">{k['no_prazo']} {badge(k['no_prazo'], t, '#16a34a')}</div></div>"""
         
-        if contrato_atual == 'ABILITY_SJ': html += f"""<div style="{c_style}"><div style="font-size:11px;color:#64748b;">Litoral</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['lit']}</div></div><div style="{c_style}"><div style="font-size:11px;color:#64748b;">Vale</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['vale']}</div></div>"""
+        if contrato_atual == 'ABILITY_SJ': html += f"""<div style="{c_style}"><div style="font-size:11px;color:#64748b;">Litoral</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['lit']} {badge(k['lit'], t, '#7c3aed')}</div></div><div style="{c_style}"><div style="font-size:11px;color:#64748b;">Vale</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k['vale']} {badge(k['vale'], t, '#7c3aed')}</div></div>"""
         st.markdown(html + "</div>", unsafe_allow_html=True)
 
         gv = len(df_view[df_view['Afetação']>=100])
@@ -532,8 +541,8 @@ if df_raw is not None:
         with st.expander("📂 Opções de Exportação"):
             c1, c2 = st.columns(2)
             try: 
-                # AQUI FOI CORRIGIDO: Botão agora usa 100% do tamanho
-                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", width="stretch")
+                # CORREÇÃO DO TAMANHO DO BOTÃO
+                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
             except: pass
             
             cols_export = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
@@ -553,12 +562,13 @@ if df_raw is not None:
 
         st.dataframe(
             df_view[c_final].style.apply(highlight_rows, axis=1), 
-            width="stretch", 
+            use_container_width=True, 
             hide_index=True, 
             height=600, 
             column_config={
                 "Ocorrência": st.column_config.TextColumn("ID", width="small"),
-                "Afetação": st.column_config.NumberColumn("Afet.", format="%.0f"),
+                # CORREÇÃO PARA FORÇAR NÚMERO INTEIRO SEM VÍRGULA
+                "Afetação": st.column_config.NumberColumn("Afet.", format="%d"),
                 "horas_float": None 
             }
         )
@@ -583,12 +593,17 @@ if df_raw is not None:
                 c_fora = len(df_cl[df_cl['Status SLA']=='Fora do Prazo'])
                 c_crit = len(df_cl[df_cl['Status SLA']=='Crítico'])
                 
+                # REAPROVEITA A LÓGICA DE PORCENTAGEM PARA O CLUSTER
+                def badge_cl(num, total, cor): 
+                    if total == 0: return ""
+                    return f"<span style='font-size:10px;font-weight:bold;color:{cor};background:{cor}15;padding:2px 6px;border-radius:4px;margin-left:5px;vertical-align:middle;'>{(num/total*100):.2f}%</span>"
+                
                 h_cl = f"""<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin-bottom:15px;">
                     <div style="{c_style}"><div style="font-size:11px;color:#64748b;">Total Geral</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{t_g}</div></div>
-                    <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">GV</div><div style="font-size:18px;font-weight:800;color:#d97706;">{t_gv}</div></div>
-                    <div style="{c_style.replace('#7c3aed','#16a34a')}"><div style="font-size:11px;color:#64748b;">No Prazo</div><div style="font-size:18px;font-weight:800;color:#16a34a;">{c_ok}</div></div>
-                    <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">Fora Prazo</div><div style="font-size:18px;font-weight:800;color:#d97706;">{c_fora}</div></div>
-                    <div style="{c_style.replace('#7c3aed','#dc2626')}"><div style="font-size:11px;color:#64748b;">Críticos (>24h)</div><div style="font-size:18px;font-weight:800;color:#dc2626;">{c_crit}</div></div>
+                    <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">GV</div><div style="font-size:18px;font-weight:800;color:#d97706;">{t_gv} {badge_cl(t_gv, t_g, '#d97706')}</div></div>
+                    <div style="{c_style.replace('#7c3aed','#16a34a')}"><div style="font-size:11px;color:#64748b;">No Prazo</div><div style="font-size:18px;font-weight:800;color:#16a34a;">{c_ok} {badge_cl(c_ok, t_g, '#16a34a')}</div></div>
+                    <div style="{c_style.replace('#7c3aed','#d97706')}"><div style="font-size:11px;color:#64748b;">Fora Prazo</div><div style="font-size:18px;font-weight:800;color:#d97706;">{c_fora} {badge_cl(c_fora, t_g, '#d97706')}</div></div>
+                    <div style="{c_style.replace('#7c3aed','#dc2626')}"><div style="font-size:11px;color:#64748b;">Críticos (>24h)</div><div style="font-size:18px;font-weight:800;color:#dc2626;">{c_crit} {badge_cl(c_crit, t_g, '#dc2626')}</div></div>
                 </div>"""
                 st.markdown(h_cl, unsafe_allow_html=True)
                 
