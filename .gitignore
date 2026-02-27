@@ -1,8 +1,9 @@
+# Credenciais de acesso
 .streamlit/secrets.toml
 .env
-serviceAccountKey.json
-*.log
-__pycache__/
+
+# Diretórios e arquivos temporários
 .venv/
-.streamlit/
+__pycache__/
+*.log
 *.pyc
