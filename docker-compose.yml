@@ -5,9 +5,8 @@ services:
       - "8501:8501"
     env_file:
       - .env
-    environment:
-      - API_URL=https://telecom.hermeticshell.org/api/view
-      - API_KEY=a6e41c2a5f544c1ca9dbf6e9bfc1e8e5
+    volumes:
+      - ./data:/app/data  # Mapeia uma pasta local para salvar o banco de dados
     networks:
       - monitoramento
     restart: unless-stopped
@@ -17,8 +16,6 @@ services:
     command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARED_TUNNEL_TOKEN}", "--url", "http://app:8501"]
     depends_on:
       - app
-    profiles:
-      - cloudflared
     networks:
       - monitoramento
     restart: unless-stopped

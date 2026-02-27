@@ -1,3 +1,12 @@
+import sys
+
+# guard before importing Streamlit to avoid warnings when running the file
+# directly with `python` instead of `streamlit run`.
+from streamlit.runtime.scriptrunner import get_script_run_ctx
+if get_script_run_ctx() is None:
+    print("This app must be launched with `streamlit run raio_x_api.py`")
+    sys.exit(0)
+
 import streamlit as st
 import pandas as pd
 import requests
@@ -74,7 +83,7 @@ elif data:
             if colunas_encontradas:
                 st.success(f"Encontradas {len(colunas_encontradas)} colunas suspeitas!")
                 # Mostra o conteúdo para você ler e ver se é o texto do TXT
-                st.dataframe(df[colunas_encontradas].head(15), use_container_width=True)
+                st.dataframe(df[colunas_encontradas].head(15), width='stretch')
                 
                 st.markdown("**Valores únicos / Exemplos de preenchimento:**")
                 for col in colunas_encontradas:
@@ -87,7 +96,7 @@ elif data:
         st.divider()
         
         st.subheader("🗂️ Amostra Completa (Olhe todas as colunas para ter certeza)")
-        st.dataframe(df.head(20), use_container_width=True)
+        st.dataframe(df.head(20), width='stretch')
         
     else:
         st.error("❌ O JSON não tem a chave 'ocorrencias'.")
