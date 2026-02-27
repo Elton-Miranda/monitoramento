@@ -10,15 +10,14 @@ import io
 import bcrypt
 import firebase_admin
 from firebase_admin import credentials, firestore
+from google.cloud.firestore_v1.base_query import FieldFilter, Or
 
 # ==============================================================================
 # 🌍 1. CONFIGURAÇÃO DE AMBIENTE
 # ==============================================================================
 os.environ['TZ'] = 'America/Sao_Paulo'
-try:
+if hasattr(time, 'tzset'):
     time.tzset()
-except AttributeError:
-    pass
 
 st.set_page_config(
     page_title="SigmaOPS", 
@@ -28,16 +27,9 @@ st.set_page_config(
 )
 
 # Inicialização do Firebase
+# removido necessidade do serviceAccoutKey.json
 if not firebase_admin._apps:
-    if os.path.exists('serviceAccountKey.json'):
-        # 1. RODA LOCAL (Acha o arquivo no seu servidor)
-        cred = credentials.Certificate('serviceAccountKey.json')
-    else:
-        # 2. RODA NA NUVEM (Puxa do painel Secrets do Streamlit)
-        firebase_cred = dict(st.secrets["firebase"])
-        firebase_cred["private_key"] = firebase_cred["private_key"].replace("\\n", "\n")
-        cred = credentials.Certificate(firebase_cred)
-        
+    cred = credentials.Certificate(dict(st.secrets["firebase"]))
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
@@ -47,7 +39,6 @@ db = firestore.client()
 # ==============================================================================
 ARQUIVO_CNL_CSV = "CNL_BASE_MONITORAMENTO.csv"
 ARQUIVO_CNL_XLSX = "CNL_BASE_MONITORAMENTO.xlsx"
-DB_FILE = "users_sigma.db"
 CONTRATOS_VALIDOS = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_PC_SC", "TELEMONT"]
 nome_arq = datetime.now().strftime('%H%M')
 
@@ -187,8 +178,8 @@ with st.sidebar:
     if PERFIL == "master":
         st.divider()
         st.markdown("#### 🛡️ Aprovação de Acessos")
-        user_ref = db.collection("users").where("approved", "==", False ).get()
-        os.system('clear')
+        # Note: modificado where para usar FieldFilter pra remover warning de deprecação
+        user_ref = db.collection("users").where(filter=FieldFilter("approved", "==", False)).get()
         if user_ref:
             st.warning(f"🔔 {len(user_ref)} Pendente(s)")
             for user in user_ref:
@@ -551,7 +542,7 @@ if df_raw is not None:
             c1, c2 = st.columns(2)
             try: 
                 # CORREÇÃO DO TAMANHO DO BOTÃO
-                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", width="stretch")
             except: pass
             
             cols_export = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
@@ -571,7 +562,7 @@ if df_raw is not None:
 
         st.dataframe(
             df_view[c_final].style.apply(highlight_rows, axis=1), 
-            use_container_width=True, 
+            width="stretch", 
             hide_index=True, 
             height=600, 
             column_config={
