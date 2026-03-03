@@ -10,13 +10,11 @@ import io
 import bcrypt
 import firebase_admin
 from firebase_admin import credentials, firestore
-from google.cloud.firestore_v1.base_query import FieldFilter, Or
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 # ==============================================================================
 # 🌍 1. CONFIGURAÇÃO DE AMBIENTE
 # ==============================================================================
-
-# fallback para garantir o fuso horário correto.
 os.environ['TZ'] = 'America/Sao_Paulo'
 if hasattr(time, 'tzset'):
     time.tzset()
@@ -29,7 +27,6 @@ st.set_page_config(
 )
 
 # Inicialização do Firebase
-# removido necessidade do serviceAccoutKey.json
 if not firebase_admin._apps:
     cred = credentials.Certificate(dict(st.secrets["firebase"]))
     firebase_admin.initialize_app(cred)
@@ -54,6 +51,41 @@ def get_secret(section, key):
 API_URL = get_secret("api", "url") or ""
 API_HEADERS = dict(st.secrets["api"].get("headers", {})) if get_secret("api", "headers") else {}
 SESSION_SALT = get_secret("security", "session_salt") or "sigma_master_key_2026"
+
+# ==============================================================================
+# 📡 HISTÓRICO DE CAMPO (FIREBASE)
+# ==============================================================================
+def salvar_status_campo(ocorrencia, status, obs, usuario):
+    ref = db.collection("status_campo").document(str(ocorrencia))
+    novo_registro = {
+        "status": status,
+        "obs": obs,
+        "usuario": usuario,
+        "data_str": (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%d/%m %H:%M"),
+        "timestamp": datetime.now(timezone.utc)
+    }
+    
+    doc = ref.get()
+    if doc.exists:
+        ref.update({"historico": firestore.ArrayUnion([novo_registro])})
+    else:
+        ref.set({"historico": [novo_registro]})
+
+def carregar_status_campo():
+    try:
+        docs = db.collection("status_campo").get()
+        status_dict = {}
+        for doc in docs:
+            dados = doc.to_dict()
+            historico = dados.get("historico", [])
+            if historico:
+                ultimo = historico[-1]
+                texto = f"{ultimo['status']}"
+                if ultimo.get('obs'): texto += f" ({ultimo['obs']})"
+                status_dict[doc.id] = texto
+        return status_dict
+    except:
+        return {}
 
 # ==============================================================================
 # 🚪 LÓGICA DE LOGIN
@@ -89,17 +121,25 @@ if not st.session_state["logged_in"]:
                 passwd = st.text_input("Senha", type="password")
                 if st.form_submit_button("Entrar"):
                     if email and passwd:
-                        user_ref = db.collection("users").document(email)
-                        user_doc = user_ref.get()
-                        if user_doc.exists:
-                            user_data = user_doc.to_dict()
-                            senha_hash = user_data["hash"].encode()
-                            if bcrypt.checkpw(passwd.encode(), senha_hash):
-                                confirm_login(user_data['name'], user_data['role'], user_data['contract'])
-                            else:
-                                st.error("Senha incorreta!")
+                        master_email = get_secret("master", "email")
+                        master_pass = get_secret("master", "password")
+                        
+                        if master_email and email == master_email and passwd == master_pass:
+                            confirm_login("Master Admin", "master", "Geral")
                         else:
-                            st.error("Usuário não encontrado!")
+                            user_ref = db.collection("users").document(email)
+                            user_doc = user_ref.get()
+                            if user_doc.exists:
+                                user_data = user_doc.to_dict()
+                                senha_hash = user_data["hash"].encode()
+                                if not user_data.get("approved", False):
+                                    st.warning("Seu acesso ainda está pendente de aprovação.")
+                                elif bcrypt.checkpw(passwd.encode(), senha_hash):
+                                    confirm_login(user_data['name'], user_data['role'], user_data['contract'])
+                                else:
+                                    st.error("Senha incorreta!")
+                            else:
+                                st.error("Usuário não encontrado!")
                     else:
                         st.warning("Preencha todos os campos.")
         with t2:
@@ -163,8 +203,6 @@ st.markdown("""
     div[role="radiogroup"] label > div:first-child { display: none !important; }
     
     .stMultiSelect [data-baseweb="tag"] { background-color: #7c3aed !important; color: white !important; }
-    .stDataFrame td { text-align: center !important; font-size: 12px !important; vertical-align: middle; padding: 6px !important; }
-    .stDataFrame th { background-color: #f1f5f9 !important; font-size: 13px !important; color: #475569 !important; }
     .alert-box { background-color: #fee2e2; color: #991b1b; padding: 10px; border-radius: 8px; text-align: center; font-weight: bold; border: 1px solid #fecaca; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
@@ -177,10 +215,9 @@ with st.sidebar:
     st.markdown(f"### 👤 {USUARIO}")
     if CONTRATO: st.markdown(f"📍 **{CONTRATO}**")
     
-    if PERFIL == "master":
+    if PERFIL in ["master", "admin"]:
         st.divider()
         st.markdown("#### 🛡️ Aprovação de Acessos")
-        # Note: modificado where para usar FieldFilter pra remover warning de deprecação
         user_ref = db.collection("users").where(filter=FieldFilter("approved", "==", False)).get()
         if user_ref:
             st.warning(f"🔔 {len(user_ref)} Pendente(s)")
@@ -190,13 +227,15 @@ with st.sidebar:
                     st.markdown(f"**{row.get('name', '')}** | {row.get('contract', '')}")
                     r_sel = st.selectbox("Perfil:", ["user", "admin"], key=f"r_{user.id}", label_visibility="collapsed")
                     c1, c2 = st.columns(2)
-                    if c1.button("✅ Aprovar", key=f"y_{user.id}", width="stretch"): 
+                    if c1.button("✅ Aprovar", key=f"y_{user.id}", use_container_width=True): 
                         user.reference.update({"approved": True, "role": r_sel})
                         st.toast(f"Usuário {row.get('name')} aprovado!")
+                        time.sleep(1)
                         st.rerun()
-                    if c2.button("❌ Recusar", key=f"n_{user.id}", width="stretch"): 
+                    if c2.button("❌ Recusar", key=f"n_{user.id}", use_container_width=True): 
                         user.reference.delete()
                         st.toast(f"Usuário {row.get('name')} removido!")
+                        time.sleep(1)
                         st.rerun()
         else:
             st.success("Tudo limpo! ✅")
@@ -238,13 +277,33 @@ def carregar_dados_api():
                     'cond_alto_valor': 'Cond. Alto Valor', 'b2b_avancado': 'B2B', 
                     'tecnicos': 'Técnicos', 'origem': 'Origem',
                     'cabo': 'Cabo', 'primarias': 'Primárias', 'bd': 'BD',
-                    'propenso_anatel': 'Propensos - Anatel', 'reclamado_anatel': 'Reclamados - Anatel'
+                    'propenso_anatel': 'Propensos - Anatel', 'reclamado_anatel': 'Reclamados - Anatel',
+                    'reincidencia': 'Reincidência'
                 }
                 df.rename(columns=rename_map, inplace=True)
+                
+                if 'Reincidência' in df.columns:
+                    def format_reinc(x):
+                        try:
+                            if pd.isna(x) or str(x).strip() in ["", "nan", "None"]: return ""
+                            return str(int(float(x)))
+                        except:
+                            return ""
+                    df['Reincidência'] = df['Reincidência'].apply(format_reinc)
+                else:
+                    df['Reincidência'] = ""
+                
+                if 'equipamentos' in df.columns:
+                    df['Cabo/Primária'] = df['equipamentos'].apply(
+                        lambda x: str(x[0]).strip() if isinstance(x, list) and len(x) > 0 else "-"
+                    )
+                else:
+                    df['Cabo/Primária'] = "-"
+                
                 df['Abertura_dt'] = pd.to_datetime(df['Abertura'], errors='coerce')
+                
                 if 'Técnicos' in df.columns: df['Técnicos'] = df['Técnicos'].apply(lambda x: len(x) if isinstance(x, list) else 0)
                 
-                # --- FORÇA A AFETAÇÃO A SER NÚMERO INTEIRO ---
                 if 'Afetação' in df.columns:
                     df['Afetação'] = pd.to_numeric(df['Afetação'], errors='coerce').fillna(0).astype(int)
                 
@@ -266,7 +325,6 @@ def carregar_dados_api():
     except Exception as e: return None, str(e)
 
 def processar_dados(df_raw, filtros_contrato):
-    # 1. Pega apenas a hora atual local (Sem subtrair 3 horas!)
     agora = datetime.now().replace(tzinfo=None)
     
     df = df_raw.copy()
@@ -280,10 +338,7 @@ def processar_dados(df_raw, filtros_contrato):
     if isinstance(filtros_contrato, str): df = df[df['Contrato_Padrao'] == filtros_contrato.upper()].copy()
     elif isinstance(filtros_contrato, list) and filtros_contrato: df = df[df['Contrato_Padrao'].isin([c.upper() for c in filtros_contrato])].copy()
     
-    # 2. Limpa o fuso horário da API para garantir que a conta bata perfeitamente
     df['Abertura_dt'] = pd.to_datetime(df['Abertura'], errors='coerce').dt.tz_localize(None)
-    
-    # 3. Calcula a diferença e trava em zero só para evitar pequenos delays de milissegundos
     df['diff_s'] = (agora - df['Abertura_dt']).dt.total_seconds().clip(lower=0)
     df['horas_float'] = df['diff_s'] / 3600
     
@@ -310,30 +365,11 @@ def processar_dados(df_raw, filtros_contrato):
         return "Geral"
         
     df['Area'] = df.apply(def_area, axis=1)
+    
+    dict_status = carregar_status_campo()
+    df['Último Status'] = df['Ocorrência'].astype(str).map(dict_status).fillna("Aguardando atualização")
+    
     return df.sort_values('horas_float', ascending=False)
-
-def highlight_rows(row):
-    h = row.get('horas_float', 0)
-    is_b2b = str(row.get('B2B', 'NÃO')).upper() == 'SIM'
-    limite_fora = 4 if is_b2b else 8
-    
-    tc = '#16a34a' 
-    if h > 24: tc = '#dc2626' 
-    elif h > limite_fora: tc = '#d97706' 
-    
-    if row.get('Afetação', 0) >= 100: tc = '#2563eb'
-    
-    styles = []
-    for col in row.index:
-        val = str(row[col]).upper().strip()
-        cell_style = f'color: {tc}; text-align: center; font-weight: 700;'
-        
-        if col == 'VIP' and val == 'SIM': cell_style += 'background-color: #f5d0fe; color: #86198f; border-radius: 4px;'
-        elif col == 'Cond. Alto Valor' and val == 'SIM': cell_style += 'background-color: #d9f99d; color: #365314; border-radius: 4px;'
-        elif col == 'B2B' and val == 'SIM': cell_style += 'background-color: #ddd6fe; color: #5b21b6; border-radius: 4px;'
-            
-        styles.append(cell_style)
-    return styles
 
 def gerar_texto_gv(row, contrato):
     try: dt = row['Abertura_dt'].strftime("%d/%m/%Y")
@@ -385,7 +421,17 @@ def gerar_cards_mpl(kpis, contrato):
 def gerar_lista_mpl_from_view(df_view, col_order, contrato):
     ITENS_POR_PAGINA = 20
     cols = [c for c in col_order if c in df_view.columns and c not in ['horas_float', 'Status SLA']]
-    df_p = df_view[cols].copy().rename(columns={'Ocorrência': 'ID', 'Horas Corridas': 'Tempo', 'Cond. Alto Valor': 'A.V'})
+    
+    # 1. ENCURTAMOS OS NOMES PARA CABER NAS CÉLULAS DA IMAGEM
+    df_p = df_view[cols].copy().rename(columns={
+        'Ocorrência': 'ID', 
+        'Horas Corridas': 'Tempo', 
+        'Cond. Alto Valor': 'A.V',
+        'Cabo/Primária': 'Cabo/Prim.',
+        'Reincidência': 'Reinc.',
+        'Afetação': 'Afet.',
+        'Técnicos': 'Téc.'
+    })
     
     lista_imagens = []
     total_linhas = len(df_p)
@@ -397,7 +443,8 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
         inicio = i * ITENS_POR_PAGINA; fim = inicio + ITENS_POR_PAGINA
         df_chunk = df_p.iloc[inicio:fim]; idx_chunk = df_view.iloc[inicio:fim]
         
-        fig, ax = plt.subplots(figsize=(14, max(4, 3 + len(df_chunk)*0.8)), dpi=180)
+        # 2. ALARGAMOS A IMAGEM (figsize de 14 para 17) PARA DAR MAIS ESPAÇO
+        fig, ax = plt.subplots(figsize=(17, max(4, 3 + len(df_chunk)*0.8)), dpi=180)
         ax.axis('off'); fig.patch.set_facecolor('white')
         
         titulo = f"SIGMA OPS: {contrato}\n{datetime.now().strftime('%d/%m • %H:%M')}"
@@ -405,7 +452,9 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
             
         plt.title(titulo, loc='center', pad=40, fontsize=28, weight='black', color='#1e293b')
         tbl = ax.table(cellText=df_chunk.values.tolist(), colLabels=df_chunk.columns, cellLoc='center', loc='center')
-        tbl.auto_set_font_size(False); tbl.set_fontsize(12); tbl.scale(1.2, 3.0)
+        
+        # 3. DIMINUÍMOS A FONTE DE 12 PARA 11 PARA NÃO VAZAR O TEXTO
+        tbl.auto_set_font_size(False); tbl.set_fontsize(11); tbl.scale(1.0, 3.0)
         
         for j in range(len(df_chunk.columns)): 
             tbl[(0, j)].set_facecolor('#7c3aed'); tbl[(0, j)].set_text_props(color='white', weight='bold')
@@ -463,7 +512,6 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
     tbl.set_fontsize(11)
     tbl.scale(1.2, 3.0)
     
-    # FORÇAR COR NO CABEÇALHO PARA NÃO FICAR BRANCO NO BRANCO
     for (i, j), cell in tbl.get_celld().items():
         if i == 0: 
             cell.set_facecolor('#7c3aed')
@@ -480,6 +528,7 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
     plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor='white')
     plt.close(fig)
     return buf.getvalue()
+
 # ==============================================================================
 # 📊 CORPO DO DASHBOARD
 # ==============================================================================
@@ -501,7 +550,7 @@ if df_raw is not None:
             else:
                 contrato_atual = st.radio("Selecione o Contrato:", CONTRATOS_VALIDOS, horizontal=True, label_visibility="collapsed")
         with c_ref:
-            if st.button("🔄 Atualizar", width="stretch"): carregar_dados_api.clear(); st.rerun()
+            if st.button("🔄 Atualizar", use_container_width=True): carregar_dados_api.clear(); st.rerun()
 
         df_view = processar_dados(df_raw, contrato_atual)
         
@@ -516,10 +565,8 @@ if df_raw is not None:
         t = len(df_view)
         k = {'total': t, 'sem_tec': len(df_view[df_view['Técnicos']==0]), 'critico': len(df_view[df_view['Status SLA']=='Crítico']), 'fora': len(df_view[df_view['Status SLA']=='Fora do Prazo']), 'no_prazo': len(df_view[df_view['Status SLA']=='No Prazo']), 'lit': len(df_view[df_view['Area']=='Litoral']), 'vale': len(df_view[df_view['Area']=='Vale'])}
         
-        # Aumentei a altura para 80px e adicionei espaçamento
         c_style = "background:white;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;padding:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;justify-content:center;height:80px;"
         
-        # O int() força a remoção das casas decimais
         def badge(num, total, cor): 
             if total == 0: return ""
             return f"<span style='font-size:11px;font-weight:bold;color:{cor};background:{cor}15;padding:2px 6px;border-radius:4px;margin-left:8px;vertical-align:middle;'>{int((num/total)*100)}%</span>"
@@ -543,37 +590,111 @@ if df_raw is not None:
         with st.expander("📂 Opções de Exportação"):
             c1, c2 = st.columns(2)
             try: 
-                # CORREÇÃO DO TAMANHO DO BOTÃO
-                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", width="stretch")
+                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
             except: pass
             
-            cols_export = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
+            cols_export = ['Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 'Reincidência', 'Origem', 'Horas Corridas', 'Status SLA', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
             try: 
                 imgs = gerar_lista_mpl_from_view(df_view, cols_export, contrato_atual)
                 if imgs: 
                     if len(imgs) == 1:
-                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", width="stretch")
+                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
                     else:
                         for idx_img, img_bytes in enumerate(imgs):
-                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", width="stretch")
+                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", use_container_width=True)
             except: pass
 
-        cols_visiveis = ['Ocorrência', 'Area', 'AT', 'Afetação', 'Status SLA', 'Horas Corridas', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
+        # --- PAINEL DE INSERÇÃO DE STATUS (SÓ PARA ADMIN/MASTER) ---
+        if PERFIL in ["master", "admin"]:
+            with st.expander("📝 Atualizar Status da Equipe de Campo", expanded=False):
+                with st.form("form_status_campo", clear_on_submit=True):
+                    
+                    lista_ocs = df_view['Ocorrência'].astype(str).tolist()
+                    
+                    if lista_ocs:
+                        dict_format = {}
+                        for _, row in df_view.iterrows():
+                            oc = str(row['Ocorrência'])
+                            cabo = str(row.get('Cabo/Primária', '-'))
+                            
+                            afet = row.get('Afetação', 0)
+                            try: afet = int(afet)
+                            except: afet = 0
+                            gv_flag = " - GV" if afet >= 100 else ""
+                            
+                            dict_format[oc] = f"{oc} | {cabo}{gv_flag}"
+                            
+                        c_st1, c_st2, c_st3 = st.columns([1.5, 1, 2])
+                        sel_oc = c_st1.selectbox("Ocorrência", lista_ocs, format_func=lambda x: dict_format.get(x, x))
+                        sel_st = c_st2.selectbox("Ação", ["Em deslocamento", "Percorrendo Rota", "Lançando Cabo", "Preparando Fusão", "Aguardando Material", "Caixa de Emenda", "Abordagem Final", "Aguardando Vistoria", "Outro"])
+                        txt_obs = c_st3.text_input("Observação (Opcional)", placeholder="Ex: Lançando cabo x metros...")
+                        
+                        c_btn1, c_btn2 = st.columns(2)
+                        if c_btn1.form_submit_button("💾 Salvar Histórico", use_container_width=True):
+                            salvar_status_campo(sel_oc, sel_st, txt_obs, USUARIO)
+                            st.success(f"Status da ocorrência {sel_oc} atualizado com sucesso!")
+                            time.sleep(1)
+                            st.rerun()
+                            
+                        if c_btn2.form_submit_button("🗑️ Apagar Histórico", use_container_width=True):
+                            db.collection("status_campo").document(str(sel_oc)).delete()
+                            st.success(f"Histórico apagado! Status retornado para 'Aguardando atualização'.")
+                            time.sleep(1)
+                            st.rerun()
+                    else:
+                        st.info("Nenhuma ocorrência disponível na tela para atualizar.")
+                        st.form_submit_button("💾 Salvar", disabled=True)
+
+        # --- EXIBIÇÃO DA TABELA HTML CENTRALIZADA ---
+        cols_visiveis = [
+            'Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 'Reincidência', 
+            'Origem', 'Horas Corridas', 'Status SLA', 'Último Status', 
+            'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos'
+        ]
+        
         cols_para_logica = cols_visiveis + ['horas_float']
         c_final = [c for c in cols_para_logica if c in df_view.columns]
 
-        st.dataframe(
-            df_view[c_final].style.apply(highlight_rows, axis=1), 
-            width="stretch", 
-            hide_index=True, 
-            height=600, 
-            column_config={
-                "Ocorrência": st.column_config.TextColumn("ID", width="small"),
-                # CORREÇÃO PARA FORÇAR NÚMERO INTEIRO SEM VÍRGULA
-                "Afetação": st.column_config.NumberColumn("Afet.", format="%d"),
-                "horas_float": None 
-            }
-        )
+        df_tela = df_view[c_final].copy()
+        df_tela.rename(columns={
+            'Ocorrência': 'ID', 'Cabo/Primária': 'Cabo/Prim.', 
+            'Afetação': 'Afet.', 'Reincidência': 'Reinc.',
+            'Horas Corridas': 'Tempo', 'Status SLA': 'SLA',
+            'Último Status': 'Status de Campo', 'Cond. Alto Valor': 'A.V', 
+            'Técnicos': 'Téc.'
+        }, inplace=True)
+
+        def highlight_rows_tela(row):
+            h = row.get('horas_float', 0)
+            is_b2b = str(row.get('B2B', 'NÃO')).upper() == 'SIM'
+            limite_fora = 4 if is_b2b else 8
+            
+            tc = '#16a34a' 
+            if h > 24: tc = '#dc2626' 
+            elif h > limite_fora: tc = '#d97706' 
+            
+            if row.get('Afet.', 0) >= 100: tc = '#2563eb'
+            
+            styles = []
+            for col in row.index:
+                val = str(row[col]).upper().strip()
+                cell_style = f'color: {tc}; text-align: center !important; font-weight: 700;'
+                
+                if col == 'VIP' and val == 'SIM': cell_style += 'background-color: #f5d0fe; color: #86198f;'
+                elif col == 'A.V' and val == 'SIM': cell_style += 'background-color: #d9f99d; color: #365314;'
+                elif col == 'B2B' and val == 'SIM': cell_style += 'background-color: #ddd6fe; color: #5b21b6;'
+                styles.append(cell_style)
+            return styles
+
+        tabela_html = df_tela.style.apply(highlight_rows_tela, axis=1).set_table_attributes(
+            'style="width:100%; text-align:center; border-collapse: collapse; font-family: Inter, sans-serif;"'
+        ).set_table_styles([
+            dict(selector='th', props=[('text-align', 'center'), ('background-color', '#f1f5f9'), ('color', '#475569'), ('padding', '10px'), ('border-bottom', '2px solid #e2e8f0'), ('font-size', '13px')]),
+            dict(selector='td', props=[('padding', '8px'), ('border-bottom', '1px solid #f8fafc'), ('font-size', '12px')])
+        ]).hide(axis='index').hide(subset=['horas_float'], axis='columns').to_html()
+
+        with st.container(height=600, border=False):
+            st.markdown(tabela_html, unsafe_allow_html=True)
 
     # --- ABA CLUSTER ---
     if tab_cl:
@@ -584,7 +705,7 @@ if df_raw is not None:
                 with c2: 
                     st.write("")
                     st.write("")
-                    st.form_submit_button("Atualizar Visão", width="stretch")
+                    st.form_submit_button("Atualizar Visão", use_container_width=True)
             
             if sels:
                 df_cl = processar_dados(df_raw, sels)
@@ -595,10 +716,9 @@ if df_raw is not None:
                 c_fora = len(df_cl[df_cl['Status SLA']=='Fora do Prazo'])
                 c_crit = len(df_cl[df_cl['Status SLA']=='Crítico'])
                 
-                # REAPROVEITA A LÓGICA DE PORCENTAGEM PARA O CLUSTER
                 def badge_cl(num, total, cor): 
                     if total == 0: return ""
-                    return f"<span style='font-size:10px;font-weight:bold;color:{cor};background:{cor}15;padding:2px 6px;border-radius:4px;margin-left:5px;vertical-align:middle;'>{(num/total*100):.2f}%</span>"
+                    return f"<span style='font-size:10px;font-weight:bold;color:{cor};background:{cor}15;padding:2px 6px;border-radius:4px;margin-left:5px;vertical-align:middle;'>{(num/total*100):.0f}%</span>"
                 
                 h_cl = f"""<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin-bottom:15px;">
                     <div style="{c_style}"><div style="font-size:11px;color:#64748b;">Total Geral</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{t_g}</div></div>
@@ -630,7 +750,7 @@ if df_raw is not None:
                     'Criticos': 'Críticos (>24h)'
                 }).reset_index().sort_values('Total', ascending=False)
                 
-                st.dataframe(resumo, width="stretch", hide_index=True)
+                st.dataframe(resumo, use_container_width=True, hide_index=True)
             else:
                 st.warning("Selecione pelo menos um contrato.")
 else:
