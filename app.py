@@ -16,6 +16,11 @@ from google.cloud.firestore_v1.base_query import FieldFilter, Or
 # 🌍 1. CONFIGURAÇÃO DE AMBIENTE
 # ==============================================================================
 
+# fallback para garantir o fuso horário correto.
+os.environ['TZ'] = 'America/Sao_Paulo'
+if hasattr(time, 'tzset'):
+    time.tzset()
+
 st.set_page_config(
     page_title="SigmaOPS", 
     page_icon="⚡", 
