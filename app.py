@@ -82,6 +82,10 @@ def carregar_status_campo():
                 ultimo = historico[-1]
                 texto = f"{ultimo['status']}"
                 if ultimo.get('obs'): texto += f" ({ultimo['obs']})"
+                
+                # --- NOVO: Adiciona o ícone e o nome de quem fez a última atualização ---
+                if ultimo.get('usuario'): texto += f" 👤 {ultimo['usuario']}"
+                
                 status_dict[doc.id] = texto
         return status_dict
     except:
@@ -422,7 +426,6 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
     ITENS_POR_PAGINA = 20
     cols = [c for c in col_order if c in df_view.columns and c not in ['horas_float', 'Status SLA']]
     
-    # 1. ENCURTAMOS OS NOMES PARA CABER NAS CÉLULAS DA IMAGEM
     df_p = df_view[cols].copy().rename(columns={
         'Ocorrência': 'ID', 
         'Horas Corridas': 'Tempo', 
@@ -443,7 +446,6 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
         inicio = i * ITENS_POR_PAGINA; fim = inicio + ITENS_POR_PAGINA
         df_chunk = df_p.iloc[inicio:fim]; idx_chunk = df_view.iloc[inicio:fim]
         
-        # 2. ALARGAMOS A IMAGEM (figsize de 14 para 17) PARA DAR MAIS ESPAÇO
         fig, ax = plt.subplots(figsize=(17, max(4, 3 + len(df_chunk)*0.8)), dpi=180)
         ax.axis('off'); fig.patch.set_facecolor('white')
         
@@ -453,7 +455,6 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
         plt.title(titulo, loc='center', pad=40, fontsize=28, weight='black', color='#1e293b')
         tbl = ax.table(cellText=df_chunk.values.tolist(), colLabels=df_chunk.columns, cellLoc='center', loc='center')
         
-        # 3. DIMINUÍMOS A FONTE DE 12 PARA 11 PARA NÃO VAZAR O TEXTO
         tbl.auto_set_font_size(False); tbl.set_fontsize(11); tbl.scale(1.0, 3.0)
         
         for j in range(len(df_chunk.columns)): 
@@ -604,65 +605,88 @@ if df_raw is not None:
                             c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", use_container_width=True)
             except: pass
 
-        # --- PAINEL DE INSERÇÃO DE STATUS (SÓ PARA ADMIN/MASTER) ---
-        if PERFIL in ["master", "admin"]:
-            with st.expander("📝 Atualizar Status da Equipe de Campo", expanded=False):
-                with st.form("form_status_campo", clear_on_submit=True):
-                    
-                    lista_ocs = df_view['Ocorrência'].astype(str).tolist()
-                    
-                    if lista_ocs:
-                        dict_format = {}
-                        for _, row in df_view.iterrows():
-                            oc = str(row['Ocorrência'])
-                            cabo = str(row.get('Cabo/Primária', '-'))
-                            
-                            afet = row.get('Afetação', 0)
-                            try: afet = int(afet)
-                            except: afet = 0
-                            gv_flag = " - GV" if afet >= 100 else ""
-                            
-                            dict_format[oc] = f"{oc} | {cabo}{gv_flag}"
-                            
-                        c_st1, c_st2, c_st3 = st.columns([1.5, 1, 2])
-                        sel_oc = c_st1.selectbox("Ocorrência", lista_ocs, format_func=lambda x: dict_format.get(x, x))
-                        sel_st = c_st2.selectbox("Ação", ["Em deslocamento", "Percorrendo Rota", "Lançando Cabo", "Preparando Fusão", "Aguardando Material", "Caixa de Emenda", "Abordagem Final", "Aguardando Vistoria", "Outro"])
-                        txt_obs = c_st3.text_input("Observação (Opcional)", placeholder="Ex: Lançando cabo x metros...")
+        # --- PAINEL DE INSERÇÃO DE STATUS (LIBERADO PARA TODOS OS USUÁRIOS) ---
+        with st.expander("📝 Atualizar Status da Equipe de Campo", expanded=False):
+            with st.form("form_status_campo", clear_on_submit=True):
+                
+                lista_ocs = df_view['Ocorrência'].astype(str).tolist()
+                
+                if lista_ocs:
+                    dict_format = {}
+                    for _, row in df_view.iterrows():
+                        oc = str(row['Ocorrência'])
+                        cabo = str(row.get('Cabo/Primária', '-'))
+                        at_local = str(row.get('AT', '-'))
                         
+                        afet = row.get('Afetação', 0)
+                        try: afet = int(afet)
+                        except: afet = 0
+                        gv_flag = " - GV" if afet >= 100 else ""
+                        
+                        dict_format[oc] = f"{oc} | {at_local} | {cabo}{gv_flag}"
+                        
+                    c_st1, c_st2, c_st3 = st.columns([1.5, 1, 2])
+                    sel_oc = c_st1.selectbox("Ocorrência", lista_ocs, format_func=lambda x: dict_format.get(x, x))
+                    sel_st = c_st2.selectbox("Ação", ["Em deslocamento", "Percorrendo Rota", "Lançando Cabo", "Preparando Fusão", "Aguardando Material", "Caixa de Emenda", "Abordagem Final", "Aguardando Vistoria", "Outro"])
+                    txt_obs = c_st3.text_input("Observação (Opcional)", placeholder="Ex: Viatura presa no trânsito...")
+                    
+                    # --- TRAVA DE SEGURANÇA DOS BOTÕES ---
+                    if PERFIL in ["master", "admin"]:
+                        # Chefes veem Salvar e Apagar
                         c_btn1, c_btn2 = st.columns(2)
-                        if c_btn1.form_submit_button("💾 Salvar Histórico", use_container_width=True):
-                            salvar_status_campo(sel_oc, sel_st, txt_obs, USUARIO)
-                            st.success(f"Status da ocorrência {sel_oc} atualizado com sucesso!")
-                            time.sleep(1)
-                            st.rerun()
-                            
-                        if c_btn2.form_submit_button("🗑️ Apagar Histórico", use_container_width=True):
-                            db.collection("status_campo").document(str(sel_oc)).delete()
-                            st.success(f"Histórico apagado! Status retornado para 'Aguardando atualização'.")
-                            time.sleep(1)
-                            st.rerun()
+                        btn_salvar = c_btn1.form_submit_button("💾 Salvar Histórico", use_container_width=True)
+                        btn_apagar = c_btn2.form_submit_button("🗑️ Apagar Histórico", use_container_width=True)
                     else:
-                        st.info("Nenhuma ocorrência disponível na tela para atualizar.")
-                        st.form_submit_button("💾 Salvar", disabled=True)
+                        # Usuários N1 veem apenas o Salvar (ocupa a largura toda)
+                        btn_salvar = st.form_submit_button("💾 Salvar Histórico", use_container_width=True)
+                        btn_apagar = False
+                        
+                    if btn_salvar:
+                        salvar_status_campo(sel_oc, sel_st, txt_obs, USUARIO)
+                        st.success(f"Status da ocorrência {sel_oc} atualizado com sucesso!")
+                        time.sleep(1)
+                        st.rerun()
+                        
+                    if btn_apagar:
+                        db.collection("status_campo").document(str(sel_oc)).delete()
+                        st.success(f"Histórico apagado! Status retornado para 'Aguardando atualização'.")
+                        time.sleep(1)
+                        st.rerun()
+                else:
+                    st.info("Nenhuma ocorrência disponível na tela para atualizar.")
+                    st.form_submit_button("💾 Salvar", disabled=True)
 
-        # --- EXIBIÇÃO DA TABELA HTML CENTRALIZADA ---
-        cols_visiveis = [
-            'Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 'Reincidência', 
-            'Origem', 'Horas Corridas', 'Status SLA', 'Último Status', 
-            'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos'
-        ]
+        # --- EXIBIÇÃO DA TABELA HTML CENTRALIZADA COM RESPONSIVIDADE ---
+        c_tab1, c_tab2 = st.columns([4, 1])
+        with c_tab2:
+            layout_modo = st.selectbox("📱 Visualização", ["🖥️ PC (Completa)", "📱 Celular (Resumida)"], label_visibility="collapsed")
+
+        if "Celular" in layout_modo:
+            cols_visiveis = [
+                'Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 
+                'Reincidência', 'Horas Corridas', 'Último Status', 'Técnicos'
+            ]
+            cols_ocultar_html = ['horas_float', 'B2B']
+        else:
+            cols_visiveis = [
+                'Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 'Reincidência', 
+                'Origem', 'Horas Corridas', 'Status SLA', 'Último Status', 
+                'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos'
+            ]
+            cols_ocultar_html = ['horas_float']
         
-        cols_para_logica = cols_visiveis + ['horas_float']
-        c_final = [c for c in cols_para_logica if c in df_view.columns]
+        cols_logica = list(dict.fromkeys(cols_visiveis + cols_ocultar_html))
+        c_final = [c for c in cols_logica if c in df_view.columns]
 
         df_tela = df_view[c_final].copy()
-        df_tela.rename(columns={
+        dict_renomear = {
             'Ocorrência': 'ID', 'Cabo/Primária': 'Cabo/Prim.', 
             'Afetação': 'Afet.', 'Reincidência': 'Reinc.',
             'Horas Corridas': 'Tempo', 'Status SLA': 'SLA',
-            'Último Status': 'Status de Campo', 'Cond. Alto Valor': 'A.V', 
+            'Último Status': 'Status', 'Cond. Alto Valor': 'A.V', 
             'Técnicos': 'Téc.'
-        }, inplace=True)
+        }
+        df_tela.rename(columns=lambda x: dict_renomear.get(x, x), inplace=True)
 
         def highlight_rows_tela(row):
             h = row.get('horas_float', 0)
@@ -686,12 +710,14 @@ if df_raw is not None:
                 styles.append(cell_style)
             return styles
 
+        ocultar_final = [dict_renomear.get(c, c) for c in cols_ocultar_html if c in df_view.columns]
+
         tabela_html = df_tela.style.apply(highlight_rows_tela, axis=1).set_table_attributes(
             'style="width:100%; text-align:center; border-collapse: collapse; font-family: Inter, sans-serif;"'
         ).set_table_styles([
             dict(selector='th', props=[('text-align', 'center'), ('background-color', '#f1f5f9'), ('color', '#475569'), ('padding', '10px'), ('border-bottom', '2px solid #e2e8f0'), ('font-size', '13px')]),
             dict(selector='td', props=[('padding', '8px'), ('border-bottom', '1px solid #f8fafc'), ('font-size', '12px')])
-        ]).hide(axis='index').hide(subset=['horas_float'], axis='columns').to_html()
+        ]).hide(axis='index').hide(subset=ocultar_final, axis='columns').to_html()
 
         with st.container(height=600, border=False):
             st.markdown(tabela_html, unsafe_allow_html=True)
