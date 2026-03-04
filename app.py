@@ -11,6 +11,18 @@ import bcrypt
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
+from google.cloud.firestore_v1 import DocumentSnapshot
+
+# Versão do SigmaOPS
+version = "1.1.0"
+
+# Validador
+
+def validar_document(document):
+    if isinstance(document, DocumentSnapshot) and document.exists:
+        return True
+    return False
+
 
 # ==============================================================================
 # 🌍 1. CONFIGURAÇÃO DE AMBIENTE
@@ -66,7 +78,7 @@ def salvar_status_campo(ocorrencia, status, obs, usuario):
     }
     
     doc = ref.get()
-    if doc.exists:
+    if validar_document(doc):
         ref.update({"historico": firestore.ArrayUnion([novo_registro])})
     else:
         ref.set({"historico": [novo_registro]})
@@ -95,10 +107,16 @@ def carregar_status_campo():
 # 🚪 LÓGICA DE LOGIN
 # ==============================================================================
 if "logged_in" not in st.session_state:
-    st.session_state.update({"logged_in": False, "username": None, "role": None, "allowed_contract": None})
+    st.session_state.update({
+        "logged_in": False,
+        "username": None,
+        "email": None,
+        "role": None,
+        "allowed_contract": None
+        })
 
-def confirm_login(u, r, c):
-    st.session_state.update({"logged_in": True, "username": u, "role": r, "allowed_contract": c})
+def confirm_login(u, e, r, c):
+    st.session_state.update({"logged_in": True, "username": u, "email": e, "role": r, "allowed_contract": c})
     st.rerun()
 
 if not st.session_state["logged_in"]:
@@ -129,17 +147,17 @@ if not st.session_state["logged_in"]:
                         master_pass = get_secret("master", "password")
                         
                         if master_email and email == master_email and passwd == master_pass:
-                            confirm_login("Master Admin", "master", "Geral")
+                            confirm_login("Master Admin", "master", "Geral", "master")
                         else:
                             user_ref = db.collection("users").document(email)
                             user_doc = user_ref.get()
-                            if user_doc.exists:
+                            if validar_document(user_doc):
                                 user_data = user_doc.to_dict()
                                 senha_hash = user_data["hash"].encode()
                                 if not user_data.get("approved", False):
                                     st.warning("Seu acesso ainda está pendente de aprovação.")
                                 elif bcrypt.checkpw(passwd.encode(), senha_hash):
-                                    confirm_login(user_data['name'], user_data['role'], user_data['contract'])
+                                    confirm_login(user_data['name'], user_data['email'], user_data['role'], user_data['contract'])
                                 else:
                                     st.error("Senha incorreta!")
                             else:
@@ -156,7 +174,7 @@ if not st.session_state["logged_in"]:
                 if st.form_submit_button("Solicitar Acesso"):
                     if name and email and passwd:
                         user_ref = db.collection("users").document(email)
-                        if user_ref.get().exists:
+                        if validar_document(user_ref.get()):
                             st.error("Usuário já existe!")
                         else:
                             user_ref.set({
@@ -212,11 +230,71 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 hora_atual = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%H:%M")
-st.markdown(f'<div class="sigma-header"><div class="sigma-title">SigmaOPS</div><div><span class="sigma-label">Última Atualização</span><span class="sigma-time">{hora_atual}</span></div></div>', unsafe_allow_html=True)
+st.markdown(
+    f'''<div class="sigma-header">
+            <div class="sigma-title">
+                SigmaOPS
+                <span style="font-size: 15px; display: block; text-align: right;">&#x16B6; {version}</span>
+            </div>
+            <div style="text-align:center;">
+                <span class="sigma-label">Última Atualização</span>
+                <span class="sigma-time">{hora_atual}</span>
+            </div>
+        </div>''',
+    unsafe_allow_html=True)
 
 # --- SIDEBAR E PAINEL ADMIN ---
 with st.sidebar:
     st.markdown(f"### 👤 {USUARIO}")
+    
+    # Sistema de alteração de senha
+    if "mostrar_form_senha" not in st.session_state:
+        st.session_state.mostrar_form_senha = False
+    
+    if st.button("Alterar Senha", use_container_width=True):
+        st.session_state.mostrar_form_senha = True
+
+    placeholder = st.empty()
+
+    if st.session_state.mostrar_form_senha:
+        with placeholder.container():
+            with st.form("change_pass_form"):
+                current_pass = st.text_input("Senha Atual", type="password")
+                new_pass = st.text_input("Nova Senha", type="password")
+                confirm_pass = st.text_input("Confirmar Nova Senha", type="password")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    btn_atualizar = st.form_submit_button("Atualizar")
+                with col2:
+                    btn_cancelar = st.form_submit_button("Cancelar")
+
+                if btn_atualizar:
+                    if not current_pass or not new_pass or not confirm_pass:
+                        st.error("Preencha todos os campos.")
+                    elif new_pass != confirm_pass:
+                        st.error("As novas senhas não coincidem.")
+                    else:
+                        user_ref = db.collection("users").document(st.session_state["email"])
+                        user_doc = user_ref.get()
+                        if isinstance(user_doc, DocumentSnapshot) and user_doc.exists:
+                            user_data = user_doc.to_dict()
+                            senha_hash = user_data["hash"].encode()
+                            if bcrypt.checkpw(current_pass.encode(), senha_hash):
+                                new_hashed = bcrypt.hashpw(new_pass.encode(), bcrypt.gensalt())
+                                user_ref.update({"hash": new_hashed.decode()})
+                                st.success("Senha atualizada com sucesso!", icon="✅")
+                                time.sleep(2)
+                                st.session_state.mostrar_form_senha = False
+                                placeholder.empty()
+                            else:
+                                st.error("Senha atual incorreta.")
+                if btn_cancelar:
+                    st.session_state.mostrar_form_senha = False
+                    placeholder.empty()
+
+    
     if CONTRATO: st.markdown(f"📍 **{CONTRATO}**")
     
     if PERFIL in ["master", "admin"]:
@@ -231,12 +309,12 @@ with st.sidebar:
                     st.markdown(f"**{row.get('name', '')}** | {row.get('contract', '')}")
                     r_sel = st.selectbox("Perfil:", ["user", "admin"], key=f"r_{user.id}", label_visibility="collapsed")
                     c1, c2 = st.columns(2)
-                    if c1.button("✅ Aprovar", key=f"y_{user.id}", use_container_width=True): 
+                    if c1.button("✅ Aprovar", key=f"y_{user.id}", width='stretch'): 
                         user.reference.update({"approved": True, "role": r_sel})
                         st.toast(f"Usuário {row.get('name')} aprovado!")
                         time.sleep(1)
                         st.rerun()
-                    if c2.button("❌ Recusar", key=f"n_{user.id}", use_container_width=True): 
+                    if c2.button("❌ Recusar", key=f"n_{user.id}", width='stretch'): 
                         user.reference.delete()
                         st.toast(f"Usuário {row.get('name')} removido!")
                         time.sleep(1)
@@ -245,13 +323,12 @@ with st.sidebar:
             st.success("Tudo limpo! ✅")
 
     st.markdown("---")
-    st.markdown("<div style='height: 20vh'></div>", unsafe_allow_html=True)
     with st.container():
-        st.markdown('<div class="sidebar-footer">', unsafe_allow_html=True)
+        # st.markdown('<div class="sidebar-footer">', unsafe_allow_html=True)
         if st.button("🚪 Sair do Sistema"):
             st.session_state.clear()
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+        # st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================================================================
 # 🧠 DADOS (CACHE OTIMIZADO) E EXPORTAÇÃO
@@ -551,7 +628,7 @@ if df_raw is not None:
             else:
                 contrato_atual = st.radio("Selecione o Contrato:", CONTRATOS_VALIDOS, horizontal=True, label_visibility="collapsed")
         with c_ref:
-            if st.button("🔄 Atualizar", use_container_width=True): carregar_dados_api.clear(); st.rerun()
+            if st.button("🔄 Atualizar", width='stretch'): carregar_dados_api.clear(); st.rerun()
 
         df_view = processar_dados(df_raw, contrato_atual)
         
@@ -591,7 +668,7 @@ if df_raw is not None:
         with st.expander("📂 Opções de Exportação"):
             c1, c2 = st.columns(2)
             try: 
-                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", width='stretch')
             except: pass
             
             cols_export = ['Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 'Reincidência', 'Origem', 'Horas Corridas', 'Status SLA', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
@@ -599,10 +676,10 @@ if df_raw is not None:
                 imgs = gerar_lista_mpl_from_view(df_view, cols_export, contrato_atual)
                 if imgs: 
                     if len(imgs) == 1:
-                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", width='stretch')
                     else:
                         for idx_img, img_bytes in enumerate(imgs):
-                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", use_container_width=True)
+                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", width='stretch')
             except: pass
 
         # --- PAINEL DE INSERÇÃO DE STATUS (LIBERADO PARA TODOS OS USUÁRIOS) ---
@@ -634,11 +711,11 @@ if df_raw is not None:
                     if PERFIL in ["master", "admin"]:
                         # Chefes veem Salvar e Apagar
                         c_btn1, c_btn2 = st.columns(2)
-                        btn_salvar = c_btn1.form_submit_button("💾 Salvar Histórico", use_container_width=True)
-                        btn_apagar = c_btn2.form_submit_button("🗑️ Apagar Histórico", use_container_width=True)
+                        btn_salvar = c_btn1.form_submit_button("💾 Salvar Histórico", width='stretch')
+                        btn_apagar = c_btn2.form_submit_button("🗑️ Apagar Histórico", width='stretch')
                     else:
                         # Usuários N1 veem apenas o Salvar (ocupa a largura toda)
-                        btn_salvar = st.form_submit_button("💾 Salvar Histórico", use_container_width=True)
+                        btn_salvar = st.form_submit_button("💾 Salvar Histórico", width='stretch')
                         btn_apagar = False
                         
                     if btn_salvar:
@@ -731,7 +808,7 @@ if df_raw is not None:
                 with c2: 
                     st.write("")
                     st.write("")
-                    st.form_submit_button("Atualizar Visão", use_container_width=True)
+                    st.form_submit_button("Atualizar Visão", width='stretch')
             
             if sels:
                 df_cl = processar_dados(df_raw, sels)
@@ -776,7 +853,7 @@ if df_raw is not None:
                     'Criticos': 'Críticos (>24h)'
                 }).reset_index().sort_values('Total', ascending=False)
                 
-                st.dataframe(resumo, use_container_width=True, hide_index=True)
+                st.dataframe(resumo, width='stretch', hide_index=True)
             else:
                 st.warning("Selecione pelo menos um contrato.")
 else:
