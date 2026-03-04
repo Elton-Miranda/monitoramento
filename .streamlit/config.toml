@@ -1,0 +1,7 @@
+[theme]
+# Força o modo claro independente da configuração do navegador do usuário
+base = "light"
+
+[server]
+# Remove o menu do canto superior direito e o rodapé "Made with Streamlit"
+headless = true

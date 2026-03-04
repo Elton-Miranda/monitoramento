@@ -24,6 +24,19 @@ def validar_document(document):
     return False
 
 
+# Analitycs do Google
+
+st.markdown(f"""
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id={st.secrets['google_analytics']['measurement_id']}"></script>
+    <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){{dataLayer.push(arguments);}}
+    gtag('js', new Date());
+
+    gtag('config', '{st.secrets['google_analytics']['measurement_id']}');
+    </script>""", unsafe_allow_html=True)
+
 # ==============================================================================
 # 🌍 1. CONFIGURAÇÃO DE AMBIENTE
 # ==============================================================================
