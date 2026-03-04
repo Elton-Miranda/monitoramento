@@ -627,8 +627,8 @@ if df_raw is not None:
                         
                     c_st1, c_st2, c_st3 = st.columns([1.5, 1, 2])
                     sel_oc = c_st1.selectbox("Ocorrência", lista_ocs, format_func=lambda x: dict_format.get(x, x))
-                    sel_st = c_st2.selectbox("Ação", ["Em deslocamento", "Percorrendo Rota", "Lançando Cabo", "Preparando Fusão", "Aguardando Material", "Caixa de Emenda", "Abordagem Final", "Aguardando Vistoria", "Outro"])
-                    txt_obs = c_st3.text_input("Observação (Opcional)", placeholder="Ex: Viatura presa no trânsito...")
+                    sel_st = c_st2.selectbox("Ação", ["Em deslocamento", "Percorrendo Rota", "Lançando Cabo", "Preparando Fusão", "Aguardando Material", "Caixa de Emenda", "Aguardando Teste", "Outro"])
+                    txt_obs = c_st3.text_input("Observação (Opcional)", placeholder="Ex. lançando x metros de cabo, aguardando chegada da equipe, etc.")
                     
                     # --- TRAVA DE SEGURANÇA DOS BOTÕES ---
                     if PERFIL in ["master", "admin"]:
