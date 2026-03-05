@@ -14,7 +14,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 from google.cloud.firestore_v1 import DocumentSnapshot
 
 # Versão do SigmaOPS
-version = "1.1.0"
+version = "1.1.1"
 
 # Validador
 
@@ -47,8 +47,7 @@ db = firestore.client()
 # ==============================================================================
 # ⚙️ CONSTANTES GLOBAIS
 # ==============================================================================
-ARQUIVO_CNL_CSV = "CNL_BASE_MONITORAMENTO.csv"
-ARQUIVO_CNL_XLSX = "CNL_BASE_MONITORAMENTO.xlsx"
+
 CONTRATOS_VALIDOS = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_PC_SC", "TELEMONT"]
 nome_arq = datetime.now().strftime('%H%M')
 
@@ -323,25 +322,13 @@ with st.sidebar:
 
     st.markdown("---")
     with st.container():
-        # st.markdown('<div class="sidebar-footer">', unsafe_allow_html=True)
         if st.button("🚪 Sair do Sistema"):
             st.session_state.clear()
             st.rerun()
-        # st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================================================================
 # 🧠 DADOS (CACHE OTIMIZADO) E EXPORTAÇÃO
 # ==============================================================================
-@st.cache_data(ttl=3600)
-def carregar_base_cnl():
-    if os.path.exists(ARQUIVO_CNL_CSV):
-        try: df = pd.read_csv(ARQUIVO_CNL_CSV, sep=None, engine='python'); df['CNL'] = df['CNL'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip(); return df[['CNL', 'MUNICÍPIO']].drop_duplicates(subset='CNL')
-        except: pass
-    if os.path.exists(ARQUIVO_CNL_XLSX):
-        try: df = pd.read_excel(ARQUIVO_CNL_XLSX); df['CNL'] = df['CNL'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip(); return df[['CNL', 'MUNICÍPIO']].drop_duplicates(subset='CNL')
-        except: pass
-    return None
-
 @st.cache_data(ttl=60, show_spinner=False)
 def carregar_dados_api():
     if not API_URL: return None, "Sem URL configurada."
@@ -399,6 +386,9 @@ def carregar_dados_api():
                 for col in ['VIP', 'Cond. Alto Valor', 'B2B']:
                     if col in df.columns: 
                         df[col] = df[col].apply(formatar_flag)
+
+                if 'municipio' in df.columns:
+                    df.rename(columns={'municipio': 'Cidade_Real'}, inplace=True)
                         
                 return df, None
             return None, f"Erro {response.status_code}"
@@ -408,11 +398,6 @@ def processar_dados(df_raw, filtros_contrato):
     agora = datetime.now().replace(tzinfo=None)
     
     df = df_raw.copy()
-    df_cnl = carregar_base_cnl()
-    if df_cnl is not None:
-        df['CNL'] = df['CNL'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-        df = pd.merge(df, df_cnl, on='CNL', how='left')
-        df.rename(columns={'MUNICÍPIO': 'Cidade_Real'}, inplace=True)
     
     df['Contrato_Padrao'] = df['Contrato'].astype(str).str.strip().str.upper()
     if isinstance(filtros_contrato, str): df = df[df['Contrato_Padrao'] == filtros_contrato.upper()].copy()

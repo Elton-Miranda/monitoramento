@@ -10,3 +10,4 @@ __pycache__/
 
 # Diretório de teste
 tests/
+.old/
