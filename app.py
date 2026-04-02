@@ -1,10 +1,11 @@
 import os
 import time
+import json
+import re
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 import requests
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
 import bcrypt
@@ -14,10 +15,9 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 from google.cloud.firestore_v1 import DocumentSnapshot
 
 # Versão do SigmaOPS
-version = "1.1.1"
+version = "1.3.0"
 
 # Validador
-
 def validar_document(document):
     if isinstance(document, DocumentSnapshot) and document.exists:
         return True
@@ -47,7 +47,6 @@ db = firestore.client()
 # ==============================================================================
 # ⚙️ CONSTANTES GLOBAIS
 # ==============================================================================
-
 CONTRATOS_VALIDOS = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_PC_SC", "TELEMONT"]
 nome_arq = datetime.now().strftime('%H%M')
 
@@ -59,6 +58,7 @@ def get_secret(section, key):
     except: return None
 
 API_URL = get_secret("api", "url") or ""
+API_URL_OFENSORES = get_secret("api", "url_ofensores") or ""
 API_HEADERS = dict(st.secrets["api"].get("headers", {})) if get_secret("api", "headers") else {}
 SESSION_SALT = get_secret("security", "session_salt") or "sigma_master_key_2026"
 
@@ -92,10 +92,7 @@ def carregar_status_campo():
                 ultimo = historico[-1]
                 texto = f"{ultimo['status']}"
                 if ultimo.get('obs'): texto += f" ({ultimo['obs']})"
-                
-                # --- NOVO: Adiciona o ícone e o nome de quem fez a última atualização ---
                 if ultimo.get('usuario'): texto += f" 👤 {ultimo['usuario']}"
-                
                 status_dict[doc.id] = texto
         return status_dict
     except:
@@ -134,7 +131,7 @@ if not st.session_state["logged_in"]:
     
     c1, c2, c3 = st.columns([1, 1.2, 1])
     with c2:
-        t1, t2 = st.tabs(["Acessar", "Cadastrar"])
+        t1, t2 = st.tabs(["Acessar", "Registar"])
         with t1:
             with st.form("login_form"):
                 email = st.text_input("E-mail").strip()
@@ -153,13 +150,13 @@ if not st.session_state["logged_in"]:
                                 user_data = user_doc.to_dict()
                                 senha_hash = user_data["hash"].encode()
                                 if not user_data.get("approved", False):
-                                    st.warning("Seu acesso ainda está pendente de aprovação.")
+                                    st.warning("O seu acesso ainda está pendente de aprovação.")
                                 elif bcrypt.checkpw(passwd.encode(), senha_hash):
                                     confirm_login(user_data['name'], user_data['email'], user_data['role'], user_data['contract'])
                                 else:
                                     st.error("Senha incorreta!")
                             else:
-                                st.error("Usuário não encontrado!")
+                                st.error("Utilizador não encontrado!")
                     else:
                         st.warning("Preencha todos os campos.")
         with t2:
@@ -173,7 +170,7 @@ if not st.session_state["logged_in"]:
                     if name and email and passwd:
                         user_ref = db.collection("users").document(email)
                         if validar_document(user_ref.get()):
-                            st.error("Usuário já existe!")
+                            st.error("O utilizador já existe!")
                         else:
                             user_ref.set({
                                 "name": name,
@@ -184,7 +181,7 @@ if not st.session_state["logged_in"]:
                                 "created_at": firestore.SERVER_TIMESTAMP,
                                 "approved": False
                             })
-                            st.success("Solicitação enviada. Aguarde liberação.")
+                            st.success("Solicitação enviada. Aguarde libertação.")
                     else: st.error("Preencha todos os campos.")
     st.stop()
 
@@ -245,7 +242,6 @@ st.markdown(
 with st.sidebar:
     st.markdown(f"### 👤 {USUARIO}")
     
-    # Sistema de alteração de senha
     if "mostrar_form_senha" not in st.session_state:
         st.session_state.mostrar_form_senha = False
     
@@ -307,14 +303,14 @@ with st.sidebar:
                     st.markdown(f"**{row.get('name', '')}** | {row.get('contract', '')}")
                     r_sel = st.selectbox("Perfil:", ["user", "admin"], key=f"r_{user.id}", label_visibility="collapsed")
                     c1, c2 = st.columns(2)
-                    if c1.button("✅ Aprovar", key=f"y_{user.id}", width='stretch'): 
+                    if c1.button("✅ Aprovar", key=f"y_{user.id}", use_container_width=True): 
                         user.reference.update({"approved": True, "role": r_sel})
-                        st.toast(f"Usuário {row.get('name')} aprovado!")
+                        st.toast(f"Utilizador {row.get('name')} aprovado!")
                         time.sleep(1)
                         st.rerun()
-                    if c2.button("❌ Recusar", key=f"n_{user.id}", width='stretch'): 
+                    if c2.button("❌ Recusar", key=f"n_{user.id}", use_container_width=True): 
                         user.reference.delete()
-                        st.toast(f"Usuário {row.get('name')} removido!")
+                        st.toast(f"Utilizador {row.get('name')} removido!")
                         time.sleep(1)
                         st.rerun()
         else:
@@ -322,77 +318,210 @@ with st.sidebar:
 
     st.markdown("---")
     with st.container():
-        if st.button("🚪 Sair do Sistema"):
+        if st.button("🚪 Sair do Sistema", use_container_width=True):
             st.session_state.clear()
             st.rerun()
 
 # ==============================================================================
-# 🧠 DADOS (CACHE OTIMIZADO) E EXPORTAÇÃO
+# 🧠 DADOS E LÓGICA
 # ==============================================================================
 @st.cache_data(ttl=60, show_spinner=False)
 def carregar_dados_api():
-    if not API_URL: return None, "Sem URL configurada."
+    df_api = pd.DataFrame()
+    erro_msg = None
+    
+    if API_URL:
+        try:
+            response = requests.get(API_URL, headers=API_HEADERS, timeout=25)
+            if response.status_code == 200:
+                data = response.json()
+                if 'ocorrencias' in data:
+                    df_api = pd.DataFrame(data['ocorrencias'])
+            else:
+                erro_msg = f"Erro API: {response.status_code}"
+        except Exception as e: 
+            erro_msg = str(e)
+
+    df_hist = pd.DataFrame()
+    if os.path.exists("historico_sigma.json"):
+        try: 
+            with open("historico_sigma.json", "r", encoding="utf-8") as f:
+                data_hist = json.load(f)
+                if 'ocorrencias' in data_hist:
+                    df_hist = pd.DataFrame(data_hist['ocorrencias'])
+                else:
+                    df_hist = pd.DataFrame(data_hist)
+        except: 
+            pass
+
+    if df_api.empty and df_hist.empty:
+        return None, erro_msg or "Sem dados disponíveis."
+        
+    df = pd.concat([df_hist, df_api], ignore_index=True)
+    
+    if 'ocorrencia' in df.columns:
+        df = df.drop_duplicates(subset=['ocorrencia'], keep='last')
+
+    rename_map = { 
+        'ocorrencia': 'Ocorrência', 'data_abertura': 'Abertura', 'contrato': 'Contrato', 
+        'cnl': 'CNL', 'at': 'AT', 'afetacao': 'Afetação', 'vip': 'VIP', 
+        'cond_alto_valor': 'Cond. Alto Valor', 'b2b_avancado': 'B2B', 
+        'tecnicos': 'Técnicos', 'origem': 'Origem',
+        'cabo': 'Cabo', 'primarias': 'Primárias', 'bd': 'BD',
+        'propenso_anatel': 'Propensos - Anatel', 'reclamado_anatel': 'Reclamados - Anatel',
+        'reincidencia': 'Reincidência'
+    }
+    df.rename(columns=rename_map, inplace=True)
+    
+    if 'Reincidência' in df.columns:
+        def format_reinc(x):
+            try:
+                if pd.isna(x) or str(x).strip() in ["", "nan", "None"]: return ""
+                return str(int(float(x)))
+            except:
+                return ""
+        df['Reincidência'] = df['Reincidência'].apply(format_reinc)
+    else:
+        df['Reincidência'] = ""
+    
+    if 'equipamentos' in df.columns:
+        df['Cabo/Primária'] = df['equipamentos'].apply(
+            lambda x: str(x[0]).strip() if isinstance(x, list) and len(x) > 0 else "-"
+        )
+    else:
+        df['Cabo/Primária'] = "-"
+    
+    df['Abertura_dt'] = pd.to_datetime(df['Abertura'], errors='coerce')
+    
+    if 'Técnicos' in df.columns: 
+        df['Técnicos'] = df['Técnicos'].apply(lambda x: len(x) if isinstance(x, list) else 0)
+    
+    if 'Afetação' in df.columns:
+        df['Afetação'] = pd.to_numeric(df['Afetação'], errors='coerce').fillna(0).astype(int)
+    
+    def formatar_flag(val):
+        if pd.isna(val): return 'NÃO'
+        s = str(val).upper().strip()
+        if s in ['TRUE', 'SIM', 'S', 'YES']: return 'SIM'
+        try:
+            return 'SIM' if float(val) > 0 else 'NÃO'
+        except:
+            return 'NÃO'
+
+    for col in ['VIP', 'Cond. Alto Valor', 'B2B']:
+        if col in df.columns: 
+            df[col] = df[col].apply(formatar_flag)
+
+    if 'municipio' in df.columns:
+        df.rename(columns={'municipio': 'Cidade_Real'}, inplace=True)
+            
+    return df, None
+
+@st.cache_data(ttl=60, show_spinner=False)
+def carregar_dados_ofensores():
+    if not API_URL_OFENSORES: return None, "URL de Ofensores não configurada no secrets.toml."
     try:
-        response = requests.get(API_URL, headers=API_HEADERS, timeout=25)
+        response = requests.get(API_URL_OFENSORES, headers=API_HEADERS, timeout=25)
         if response.status_code == 200:
-            data = response.json()
-            if 'ocorrencias' in data:
-                df = pd.DataFrame(data['ocorrencias'])
-                rename_map = { 
-                    'ocorrencia': 'Ocorrência', 'data_abertura': 'Abertura', 'contrato': 'Contrato', 
-                    'cnl': 'CNL', 'at': 'AT', 'afetacao': 'Afetação', 'vip': 'VIP', 
-                    'cond_alto_valor': 'Cond. Alto Valor', 'b2b_avancado': 'B2B', 
-                    'tecnicos': 'Técnicos', 'origem': 'Origem',
-                    'cabo': 'Cabo', 'primarias': 'Primárias', 'bd': 'BD',
-                    'propenso_anatel': 'Propensos - Anatel', 'reclamado_anatel': 'Reclamados - Anatel',
-                    'reincidencia': 'Reincidência'
-                }
-                df.rename(columns=rename_map, inplace=True)
-                
-                if 'Reincidência' in df.columns:
-                    def format_reinc(x):
-                        try:
-                            if pd.isna(x) or str(x).strip() in ["", "nan", "None"]: return ""
-                            return str(int(float(x)))
-                        except:
-                            return ""
-                    df['Reincidência'] = df['Reincidência'].apply(format_reinc)
-                else:
-                    df['Reincidência'] = ""
-                
-                if 'equipamentos' in df.columns:
-                    df['Cabo/Primária'] = df['equipamentos'].apply(
-                        lambda x: str(x[0]).strip() if isinstance(x, list) and len(x) > 0 else "-"
-                    )
-                else:
-                    df['Cabo/Primária'] = "-"
-                
-                df['Abertura_dt'] = pd.to_datetime(df['Abertura'], errors='coerce')
-                
-                if 'Técnicos' in df.columns: df['Técnicos'] = df['Técnicos'].apply(lambda x: len(x) if isinstance(x, list) else 0)
-                
-                if 'Afetação' in df.columns:
-                    df['Afetação'] = pd.to_numeric(df['Afetação'], errors='coerce').fillna(0).astype(int)
-                
-                def formatar_flag(val):
-                    if pd.isna(val): return 'NÃO'
-                    s = str(val).upper().strip()
-                    if s in ['TRUE', 'SIM', 'S', 'YES']: return 'SIM'
-                    try:
-                        return 'SIM' if float(val) > 0 else 'NÃO'
-                    except:
-                        return 'NÃO'
+            return response.json(), None
+        return None, f"Erro {response.status_code}"
+    except Exception as e: 
+        return None, str(e)
 
-                for col in ['VIP', 'Cond. Alto Valor', 'B2B']:
-                    if col in df.columns: 
-                        df[col] = df[col].apply(formatar_flag)
+def processar_json_ofensores(dados_json):
+    linhas = []
+    
+    if isinstance(dados_json, dict):
+        for key, value in dados_json.items():
+            if isinstance(value, list):
+                dados_json = value
+                break
 
-                if 'municipio' in df.columns:
-                    df.rename(columns={'municipio': 'Cidade_Real'}, inplace=True)
-                        
-                return df, None
-            return None, f"Erro {response.status_code}"
-    except Exception as e: return None, str(e)
+    if not isinstance(dados_json, list): return pd.DataFrame()
+
+    for item in dados_json:
+        nome_completo = item.get("primaria", "")
+        detalhes = item.get("detalhes", [])
+        
+        volume = len(detalhes)
+        lista_ocs = [str(d.get("ocorrencia", "")) for d in detalhes]
+        ocorrencias_str = ", ".join(lista_ocs)
+        
+        busca = re.search(r'([A-Za-z]{2})(\d+)-(.*)', str(nome_completo))
+        
+        if busca:
+            at = busca.group(1).upper()
+            cb = busca.group(2)
+            prim = busca.group(3)
+        else:
+            at = "-"
+            cb = "-"
+            prim = nome_completo 
+            
+        linhas.append({
+            "AT": at,
+            "Cabo": cb,
+            "Primária": prim,
+            "Volume (Falhas)": volume,
+            "Ocorrências (IDs)": ocorrencias_str
+        })
+        
+    df = pd.DataFrame(linhas)
+    if not df.empty:
+        df = df.sort_values(by="Volume (Falhas)", ascending=False)
+    return df
+
+def carregar_base_share():
+    print("\n--- INÍCIO DA LEITURA DO SHARE ---")
+    file_options = [
+        "share_at_sj.csv",
+        "SHARE_AT_SJ.csv", 
+        "SHARE_AT_SJC_JAI.xlsx",
+        "SHARE_AT_SJC_JAI.xlsx - SHARE_AT_SJ.csv", 
+        "SHARE_AT_SJC_JAI.xlsx - SHARE_AT _JAI.csv"
+    ]
+    
+    for file in file_options:
+        if os.path.exists(file):
+            print(f"⏳ Ficheiro encontrado: {file}. A tentar ler...")
+            try:
+                if file.endswith('.xlsx'):
+                    df = pd.read_excel(file)
+                else:
+                    # Tenta vírgula normal (ERRO DE DIGITAÇÃO CORRIGIDO AQUI)
+                    df = pd.read_csv(file) 
+                    
+                    # Se detetar que só criou 1 coluna, o Excel exportou com ponto e vírgula
+                    if len(df.columns) < 3:  
+                        print("Aviso: Formato incorreto detetado, a tentar com separador ';'")
+                        df = pd.read_csv(file, sep=';')
+                
+                print(f"✅ Ficheiro {file} lido com sucesso. Linhas totais: {len(df)}")
+                df.columns = df.columns.str.strip()
+                
+                if 'nom_AreaTelefonica' in df.columns and 'qtd_Acessos' in df.columns:
+                    print("⚙️ Colunas corretas encontradas. A processar matemática...")
+                    df = df.dropna(subset=['num_MesAno', 'nom_AreaTelefonica', 'qtd_Acessos'])
+                    
+                    df['num_MesAno'] = df['num_MesAno'].astype(float).astype(int).astype(str)
+                    df['year'] = df['num_MesAno'].str[-4:].astype(int)
+                    df['month'] = df['num_MesAno'].str[:-4].astype(int)
+                    df['date'] = pd.to_datetime({'year': df['year'], 'month': df['month'], 'day': 1})
+                    
+                    latest_date = df['date'].max()
+                    df_latest = df[df['date'] == latest_date]
+                    
+                    dict_share = df_latest.groupby('nom_AreaTelefonica')['qtd_Acessos'].sum().to_dict()
+                    print(f"🚀 Sucesso! Dicionário criado com {len(dict_share)} ATs.")
+                    return dict_share
+                else:
+                    print(f"❌ Aviso: O ficheiro {file} não tem as colunas corretas.")
+            except Exception as e:
+                print(f"❌ Erro ao ler {file}: {str(e)}")
+                continue
+                
+    print("--- FIM: NENHUM FICHEIRO VÁLIDO ENCONTRADO ---")
+    return {}
 
 def processar_dados(df_raw, filtros_contrato):
     agora = datetime.now().replace(tzinfo=None)
@@ -432,7 +561,7 @@ def processar_dados(df_raw, filtros_contrato):
     df['Area'] = df.apply(def_area, axis=1)
     
     dict_status = carregar_status_campo()
-    df['Último Status'] = df['Ocorrência'].astype(str).map(dict_status).fillna("Aguardando atualização")
+    df['Último Status'] = df['Ocorrência'].astype(str).map(dict_status).fillna("A aguardar atualização")
     
     return df.sort_values('horas_float', ascending=False)
 
@@ -469,6 +598,7 @@ DEFEITO:
 PRAZO:"""
 
 def gerar_cards_mpl(kpis, contrato):
+    import matplotlib.pyplot as plt
     C_BG, C_BORDER, C_TEXT, C_LABEL = "#ffffff", "#e2e8f0", "#1e293b", "#64748b"
     C_RED, C_YELLOW, C_GREEN = "#dc2626", "#d97706", "#16a34a"
     h_tot = 14 if contrato == 'ABILITY_SJ' else 11
@@ -484,6 +614,7 @@ def gerar_cards_mpl(kpis, contrato):
     buf = io.BytesIO(); plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG); plt.close(fig); return buf.getvalue()
 
 def gerar_lista_mpl_from_view(df_view, col_order, contrato):
+    import matplotlib.pyplot as plt
     ITENS_POR_PAGINA = 20
     cols = [c for c in col_order if c in df_view.columns and c not in ['horas_float', 'Status SLA']]
     
@@ -542,6 +673,7 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
     return lista_imagens
 
 def gerar_dashboard_gerencial(df_geral, contratos_list):
+    import matplotlib.pyplot as plt
     df_filtrado = df_geral.copy()
     resumo = df_filtrado.groupby('Contrato_Padrao').agg(
         Total=('Ocorrência', 'count'), 
@@ -597,22 +729,24 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
 df_raw, erro = carregar_dados_api()
 
 if df_raw is not None:
+    # --- ABAS DE PERFIS ---
     if PERFIL in ["master", "admin"]: 
-        tab_op, tab_cl = st.tabs(["Operacional", "Cluster"])
+        tab_op, tab_cl, tab_of, tab_share = st.tabs(["Operacional", "Cluster", "Ofensores", "Criticidade Share"])
     else: 
-        tab_op = st.container(); tab_cl = None
+        tab_op, tab_of, tab_share = st.tabs(["Operacional", "Ofensores", "Criticidade Share"])
+        tab_cl = None
 
     # --- ABA OPERACIONAL ---
     with tab_op:
         c_sel, c_ref = st.columns([5, 1], gap="small")
         with c_sel:
             if CONTRATO and PERFIL not in ["master", "admin"]:
-                st.info(f"Visualizando: {CONTRATO}")
+                st.info(f"A visualizar: {CONTRATO}")
                 contrato_atual = CONTRATO
             else:
                 contrato_atual = st.radio("Selecione o Contrato:", CONTRATOS_VALIDOS, horizontal=True, label_visibility="collapsed")
         with c_ref:
-            if st.button("🔄 Atualizar", width='stretch'): carregar_dados_api.clear(); st.rerun()
+            if st.button("🔄 Atualizar", use_container_width=True): carregar_dados_api.clear(); st.rerun()
 
         df_view = processar_dados(df_raw, contrato_atual)
         
@@ -652,7 +786,7 @@ if df_raw is not None:
         with st.expander("📂 Opções de Exportação"):
             c1, c2 = st.columns(2)
             try: 
-                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", width='stretch')
+                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
             except: pass
             
             cols_export = ['Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 'Reincidência', 'Origem', 'Horas Corridas', 'Status SLA', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
@@ -660,14 +794,14 @@ if df_raw is not None:
                 imgs = gerar_lista_mpl_from_view(df_view, cols_export, contrato_atual)
                 if imgs: 
                     if len(imgs) == 1:
-                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", width='stretch')
+                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
                     else:
                         for idx_img, img_bytes in enumerate(imgs):
-                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", width='stretch')
+                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", use_container_width=True)
             except: pass
 
-        # --- PAINEL DE INSERÇÃO DE STATUS (LIBERADO PARA TODOS OS USUÁRIOS) ---
-        with st.expander("📝 Atualizar Status da Equipe de Campo", expanded=False):
+        # --- PAINEL DE INSERÇÃO DE STATUS ---
+        with st.expander("📝 Atualizar Status da Equipa de Campo", expanded=False):
             with st.form("form_status_campo", clear_on_submit=True):
                 
                 lista_ocs = df_view['Ocorrência'].astype(str).tolist()
@@ -688,18 +822,15 @@ if df_raw is not None:
                         
                     c_st1, c_st2, c_st3 = st.columns([1.5, 1, 2])
                     sel_oc = c_st1.selectbox("Ocorrência", lista_ocs, format_func=lambda x: dict_format.get(x, x))
-                    sel_st = c_st2.selectbox("Ação", ["Em deslocamento", "Percorrendo Rota", "Lançando Cabo", "Preparando Fusão", "Aguardando Material", "Caixa de Emenda", "Aguardando Teste", "Outro"])
-                    txt_obs = c_st3.text_input("Observação (Opcional)", placeholder="Ex. lançando x metros de cabo, aguardando chegada da equipe, etc.")
+                    sel_st = c_st2.selectbox("Ação", ["Em deslocamento", "A percorrer Rota", "A lançar Cabo", "A preparar Fusão", "A aguardar Material", "Caixa de Emenda", "A aguardar Teste", "Outro"])
+                    txt_obs = c_st3.text_input("Observação (Opcional)", placeholder="Ex. a lançar x metros de cabo, a aguardar chegada da equipa, etc.")
                     
-                    # --- TRAVA DE SEGURANÇA DOS BOTÕES ---
                     if PERFIL in ["master", "admin"]:
-                        # Chefes veem Salvar e Apagar
                         c_btn1, c_btn2 = st.columns(2)
-                        btn_salvar = c_btn1.form_submit_button("💾 Salvar Histórico", width='stretch')
-                        btn_apagar = c_btn2.form_submit_button("🗑️ Apagar Histórico", width='stretch')
+                        btn_salvar = c_btn1.form_submit_button("💾 Guardar Histórico", use_container_width=True)
+                        btn_apagar = c_btn2.form_submit_button("🗑️ Apagar Histórico", use_container_width=True)
                     else:
-                        # Usuários N1 veem apenas o Salvar (ocupa a largura toda)
-                        btn_salvar = st.form_submit_button("💾 Salvar Histórico", width='stretch')
+                        btn_salvar = st.form_submit_button("💾 Guardar Histórico", use_container_width=True)
                         btn_apagar = False
                         
                     if btn_salvar:
@@ -710,19 +841,19 @@ if df_raw is not None:
                         
                     if btn_apagar:
                         db.collection("status_campo").document(str(sel_oc)).delete()
-                        st.success(f"Histórico apagado! Status retornado para 'Aguardando atualização'.")
+                        st.success(f"Histórico apagado! Status retornado para 'A aguardar atualização'.")
                         time.sleep(1)
                         st.rerun()
                 else:
                     st.info("Nenhuma ocorrência disponível na tela para atualizar.")
-                    st.form_submit_button("💾 Salvar", disabled=True)
+                    st.form_submit_button("💾 Guardar", disabled=True)
 
         # --- EXIBIÇÃO DA TABELA HTML CENTRALIZADA COM RESPONSIVIDADE ---
         c_tab1, c_tab2 = st.columns([4, 1])
         with c_tab2:
-            layout_modo = st.selectbox("📱 Visualização", ["🖥️ PC (Completa)", "📱 Celular (Resumida)"], label_visibility="collapsed")
+            layout_modo = st.selectbox("📱 Visualização", ["🖥️ PC (Completa)", "📱 Telemóvel (Resumida)"], label_visibility="collapsed")
 
-        if "Celular" in layout_modo:
+        if "Telemóvel" in layout_modo:
             cols_visiveis = [
                 'Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 
                 'Reincidência', 'Horas Corridas', 'Último Status', 'Técnicos'
@@ -792,7 +923,7 @@ if df_raw is not None:
                 with c2: 
                     st.write("")
                     st.write("")
-                    st.form_submit_button("Atualizar Visão", width='stretch')
+                    st.form_submit_button("Atualizar Visão", use_container_width=True)
             
             if sels:
                 df_cl = processar_dados(df_raw, sels)
@@ -816,7 +947,7 @@ if df_raw is not None:
                 </div>"""
                 st.markdown(h_cl, unsafe_allow_html=True)
                 
-                with st.expander("Baixar Imagem"):
+                with st.expander("Descarregar Imagem"):
                     if st.button("Gerar Dashboard"):
                         try: st.download_button("Download", gerar_dashboard_gerencial(df_cl, sels), f"cluster_{nome_arq}.jpg", "image/jpeg")
                         except: pass
@@ -837,8 +968,125 @@ if df_raw is not None:
                     'Criticos': 'Críticos (>24h)'
                 }).reset_index().sort_values('Total', ascending=False)
                 
-                st.dataframe(resumo, width='stretch', hide_index=True)
+                st.dataframe(resumo, use_container_width=True, hide_index=True)
             else:
                 st.warning("Selecione pelo menos um contrato.")
+
+    # --- ABA OFENSORES (NOVA API DIRETA) ---
+    with tab_of:
+        st.markdown("<h3 style='color:#1e293b;'>🏆 Ranking de Primárias Ofensoras</h3>", unsafe_allow_html=True)
+        st.markdown("Monitorização de equipamentos em crise com base na API em tempo real.")
+        
+        c_f1, c_f2 = st.columns([5, 1], gap="small")
+        with c_f1:
+            at_sel = st.text_input("Filtrar por AT (Digite a sigla, ex: PE, TT):", placeholder="Deixe em branco para ver todas as ATs...").strip().upper()
+        with c_f2:
+            st.write("")
+            st.write("")
+            if st.button("🔄 Atualizar Base", use_container_width=True):
+                carregar_dados_ofensores.clear()
+                st.rerun()
+
+        st.write("")
+        
+        dados_of, erro_of = carregar_dados_ofensores()
+        
+        if dados_of is not None:
+            df_rank = processar_json_ofensores(dados_of)
+            
+            if not df_rank.empty:
+                if at_sel:
+                    ats_list = [x.strip() for x in at_sel.split(',')]
+                    df_rank = df_rank[df_rank['AT'].isin(ats_list)]
+                    
+                if not df_rank.empty:
+                    top_1 = df_rank.iloc[0]
+                    if top_1['Volume (Falhas)'] > 1:
+                        st.markdown(f"""
+                        <div style='background-color: #fee2e2; border-left: 5px solid #dc2626; padding: 15px; border-radius: 8px; margin-bottom: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
+                            <h4 style='color: #991b1b; margin: 0; font-weight: 800;'>🚨 ALERTA DE OFENSOR CRÍTICO</h4>
+                            <p style='color: #7f1d1d; margin: 5px 0 0 0; font-size: 15px;'>
+                                A primária <b>{top_1['Primária']}</b> (AT: {top_1['AT']} | Cabo: {top_1['Cabo']}) possui <b>{top_1['Volume (Falhas)']} chamados ativos</b> simultâneos.
+                            </p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    st.markdown("##### 📋 Detalhamento dos Casos em Crise")
+                    st.dataframe(
+                        df_rank.style.set_properties(**{'text-align': 'center', 'font-weight': '600'}),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("Nenhuma primária ofensora encontrada para a AT selecionada.")
+            else:
+                st.info("🎉 Excelente! Nenhuma primária ofensora detetada no momento.")
+        else:
+            st.error(f"Falha ao comunicar com a API de Ofensores: {erro_of}")
+
+    # --- ABA CRITICIDADE SHARE ---
+    with tab_share:
+        st.markdown("<h3 style='color:#1e293b;'>📉 Análise de Criticidade (Share da AT)</h3>", unsafe_allow_html=True)
+        st.markdown("Calcula a percentagem de clientes offline em relação ao tamanho total da central (AT). Permite descobrir quando uma ocorrência pequena em números absolutos é, na verdade, uma falha gravíssima e de grande impacto relativo para aquela localidade.")
+        
+        dict_share = carregar_base_share()
+        
+        if not dict_share:
+            st.warning("⚠️ Ficheiro de Share não encontrado. Coloque o ficheiro CSV extraído de Share na mesma pasta do sistema para ativar esta função.")
+        else:
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                limite_critico = st.slider("🚨 Alerta de Crise a partir de (%)", min_value=1.0, max_value=20.0, value=3.0, step=0.5, help="Pela regra de ouro: Perder mais de 3% de toda a central num único evento já configura um cenário crítico ou de Grande Vulto.")
+                
+            df_share = df_view.copy()
+            df_share['AT_Clean'] = df_share['AT'].astype(str).str.split('-').str[0].str.strip().str.upper()
+            
+            df_share = df_share[(df_share['AT_Clean'] != '-') & (df_share['Afetação'] > 0)].copy()
+            
+            if not df_share.empty:
+                df_share['Total_Clientes_AT'] = df_share['AT_Clean'].map(dict_share)
+                df_share = df_share.dropna(subset=['Total_Clientes_AT'])
+                
+                if not df_share.empty:
+                    df_share['Total_Clientes_AT'] = df_share['Total_Clientes_AT'].astype(int)
+                    df_share['Risco_Pct'] = (df_share['Afetação'] / df_share['Total_Clientes_AT']) * 100
+                    
+                    df_share = df_share.sort_values(by='Risco_Pct', ascending=False)
+                    
+                    qtd_criticos = len(df_share[df_share['Risco_Pct'] >= limite_critico])
+                    pior_oc = df_share.iloc[0]
+                    
+                    c_k1, c_k2, c_k3 = st.columns(3)
+                    c_k1.markdown(f"<div class='alert-box' style='background:#fef2f2; border-color:#fecaca;'><div style='color:#991b1b; font-size:12px;'>Ocorrências em Crise (>{limite_critico}%)</div><div style='font-size:24px; font-weight:900;'>{qtd_criticos}</div></div>", unsafe_allow_html=True)
+                    
+                    cor_pior = '#dc2626' if pior_oc['Risco_Pct'] >= limite_critico else '#d97706'
+                    c_k2.markdown(f"<div class='alert-box' style='background:#fffbeb; border-color:#fde68a;'><div style='color:#92400e; font-size:12px;'>Maior Risco Atual (AT: {pior_oc['AT_Clean']})</div><div style='font-size:24px; font-weight:900; color:{cor_pior};'>{pior_oc['Risco_Pct']:.2f}% de toda a Central</div></div>", unsafe_allow_html=True)
+                    
+                    st.write("")
+                    st.markdown("##### 📋 Ocorrências classificadas por Risco de Impacto")
+                    
+                    df_share['Risco (%)'] = df_share['Risco_Pct'].apply(lambda x: f"{x:.2f}%")
+                    
+                    cols_exibicao = ['Ocorrência', 'AT_Clean', 'Cabo/Primária', 'Afetação', 'Total_Clientes_AT', 'Risco (%)', 'Último Status']
+                    df_style = df_share[cols_exibicao + ['Risco_Pct']].rename(columns={'AT_Clean': 'AT', 'Total_Clientes_AT': 'Tamanho da Central (Share)', 'Afetação': 'Clientes Fora'})
+                    
+                    def highlight_risco(row):
+                        risco = row.get('Risco_Pct', 0)
+                        if risco >= limite_critico:
+                            return ['background-color: #fee2e2; color: #991b1b; font-weight: 800;' for _ in row]
+                        elif risco >= limite_critico / 2:
+                            return ['background-color: #fffbeb; color: #92400e; font-weight: 600;' for _ in row]
+                        return ['' for _ in row]
+                    
+                    st.dataframe(
+                        df_style.style.apply(highlight_risco, axis=1).hide(subset=['Risco_Pct'], axis='columns').set_properties(**{'text-align': 'center'}),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("Nenhuma das ATs com falha no momento foi encontrada no ficheiro de Share. Verifique as siglas das ATs.")
+            else:
+                st.info("Não há ocorrências com afetação nas ATs no momento (Todas zeradas).")
+
 else:
-    st.error("Erro ao carregar dados da API.")
+    st.error("Erro ao carregar dados.")
