@@ -1,21 +1,40 @@
-import os
-import time
-import json
-import re
-import streamlit as st
-import pandas as pd
-from datetime import datetime, timedelta, timezone
-import requests
-import matplotlib.patches as patches
 import io
+import json
+import logging
+import os
+import re
+import time
+from datetime import datetime, timedelta, timezone
+
 import bcrypt
 import firebase_admin
+import matplotlib.patches as patches
+import pandas as pd
+import requests
+import streamlit as st
 from firebase_admin import credentials, firestore
-from google.cloud.firestore_v1.base_query import FieldFilter
 from google.cloud.firestore_v1 import DocumentSnapshot
+from google.cloud.firestore_v1.base_query import FieldFilter
+
+# configurações de logging
+
+fmt='%(asctime)s - [%(levelname)s] %(name)s->%(funcName)s:%(lineno)d | %(message)s'
+date_format = '%d/%m/%y %H:%M:%S'
+log_format = logging.Formatter(fmt=fmt, datefmt=date_format)
+
+# Handler para Console
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_format)
+
+# Root Logger: Configura o "pai" de todos os loggers
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+root_logger.addHandler(console_handler)
+
+logger = logging.getLogger('main_app')
 
 # Versão do SigmaOPS
-version = "1.3.0"
+version = "1.3.1"
 
 # Validador
 def validar_document(document):
@@ -358,8 +377,10 @@ def carregar_dados_api():
         return None, erro_msg or "Sem dados disponíveis."
         
     df = pd.concat([df_hist, df_api], ignore_index=True)
+
     
     if 'ocorrencia' in df.columns:
+        df['ocorrencia'] = df['ocorrencia'].astype(int)
         df = df.drop_duplicates(subset=['ocorrencia'], keep='last')
 
     rename_map = { 
@@ -423,6 +444,7 @@ def carregar_dados_ofensores():
     try:
         response = requests.get(API_URL_OFENSORES, headers=API_HEADERS, timeout=25)
         if response.status_code == 200:
+            logger.debug('lista de ofensoras recebida com sucesso.')
             return response.json(), None
         return None, f"Erro {response.status_code}"
     except Exception as e: 
@@ -801,52 +823,52 @@ if df_raw is not None:
             except: pass
 
         # --- PAINEL DE INSERÇÃO DE STATUS ---
-        with st.expander("📝 Atualizar Status da Equipa de Campo", expanded=False):
-            with st.form("form_status_campo", clear_on_submit=True):
+        # with st.expander("📝 Atualizar Status da Equipa de Campo", expanded=False):
+        #     with st.form("form_status_campo", clear_on_submit=True):
                 
-                lista_ocs = df_view['Ocorrência'].astype(str).tolist()
+        #         lista_ocs = df_view['Ocorrência'].astype(str).tolist()
                 
-                if lista_ocs:
-                    dict_format = {}
-                    for _, row in df_view.iterrows():
-                        oc = str(row['Ocorrência'])
-                        cabo = str(row.get('Cabo/Primária', '-'))
-                        at_local = str(row.get('AT', '-'))
+        #         if lista_ocs:
+        #             dict_format = {}
+        #             for _, row in df_view.iterrows():
+        #                 oc = str(row['Ocorrência'])
+        #                 cabo = str(row.get('Cabo/Primária', '-'))
+        #                 at_local = str(row.get('AT', '-'))
                         
-                        afet = row.get('Afetação', 0)
-                        try: afet = int(afet)
-                        except: afet = 0
-                        gv_flag = " - GV" if afet >= 100 else ""
+        #                 afet = row.get('Afetação', 0)
+        #                 try: afet = int(afet)
+        #                 except: afet = 0
+        #                 gv_flag = " - GV" if afet >= 100 else ""
                         
-                        dict_format[oc] = f"{oc} | {at_local} | {cabo}{gv_flag}"
+        #                 dict_format[oc] = f"{oc} | {at_local} | {cabo}{gv_flag}"
                         
-                    c_st1, c_st2, c_st3 = st.columns([1.5, 1, 2])
-                    sel_oc = c_st1.selectbox("Ocorrência", lista_ocs, format_func=lambda x: dict_format.get(x, x))
-                    sel_st = c_st2.selectbox("Ação", ["Em deslocamento", "A percorrer Rota", "A lançar Cabo", "A preparar Fusão", "A aguardar Material", "Caixa de Emenda", "A aguardar Teste", "Outro"])
-                    txt_obs = c_st3.text_input("Observação (Opcional)", placeholder="Ex. a lançar x metros de cabo, a aguardar chegada da equipa, etc.")
+        #             c_st1, c_st2, c_st3 = st.columns([1.5, 1, 2])
+        #             sel_oc = c_st1.selectbox("Ocorrência", lista_ocs, format_func=lambda x: dict_format.get(x, x))
+        #             sel_st = c_st2.selectbox("Ação", ["Em deslocamento", "A percorrer Rota", "A lançar Cabo", "A preparar Fusão", "A aguardar Material", "Caixa de Emenda", "A aguardar Teste", "Outro"])
+        #             txt_obs = c_st3.text_input("Observação (Opcional)", placeholder="Ex. a lançar x metros de cabo, a aguardar chegada da equipa, etc.")
                     
-                    if PERFIL in ["master", "admin"]:
-                        c_btn1, c_btn2 = st.columns(2)
-                        btn_salvar = c_btn1.form_submit_button("💾 Guardar Histórico", use_container_width=True)
-                        btn_apagar = c_btn2.form_submit_button("🗑️ Apagar Histórico", use_container_width=True)
-                    else:
-                        btn_salvar = st.form_submit_button("💾 Guardar Histórico", use_container_width=True)
-                        btn_apagar = False
+        #             if PERFIL in ["master", "admin"]:
+        #                 c_btn1, c_btn2 = st.columns(2)
+        #                 btn_salvar = c_btn1.form_submit_button("💾 Guardar Histórico", use_container_width=True)
+        #                 btn_apagar = c_btn2.form_submit_button("🗑️ Apagar Histórico", use_container_width=True)
+        #             else:
+        #                 btn_salvar = st.form_submit_button("💾 Guardar Histórico", use_container_width=True)
+        #                 btn_apagar = False
                         
-                    if btn_salvar:
-                        salvar_status_campo(sel_oc, sel_st, txt_obs, USUARIO)
-                        st.success(f"Status da ocorrência {sel_oc} atualizado com sucesso!")
-                        time.sleep(1)
-                        st.rerun()
+        #             if btn_salvar:
+        #                 salvar_status_campo(sel_oc, sel_st, txt_obs, USUARIO)
+        #                 st.success(f"Status da ocorrência {sel_oc} atualizado com sucesso!")
+        #                 time.sleep(1)
+        #                 st.rerun()
                         
-                    if btn_apagar:
-                        db.collection("status_campo").document(str(sel_oc)).delete()
-                        st.success(f"Histórico apagado! Status retornado para 'A aguardar atualização'.")
-                        time.sleep(1)
-                        st.rerun()
-                else:
-                    st.info("Nenhuma ocorrência disponível na tela para atualizar.")
-                    st.form_submit_button("💾 Guardar", disabled=True)
+        #             if btn_apagar:
+        #                 db.collection("status_campo").document(str(sel_oc)).delete()
+        #                 st.success(f"Histórico apagado! Status retornado para 'A aguardar atualização'.")
+        #                 time.sleep(1)
+        #                 st.rerun()
+        #         else:
+        #             st.info("Nenhuma ocorrência disponível na tela para atualizar.")
+        #             st.form_submit_button("💾 Guardar", disabled=True)
 
         # --- EXIBIÇÃO DA TABELA HTML CENTRALIZADA COM RESPONSIVIDADE ---
         c_tab1, c_tab2 = st.columns([4, 1])
@@ -856,13 +878,14 @@ if df_raw is not None:
         if "Telemóvel" in layout_modo:
             cols_visiveis = [
                 'Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 
-                'Reincidência', 'Horas Corridas', 'Último Status', 'Técnicos'
+                'Reincidência', 'Horas Corridas', #'Último Status'
+                'Técnicos'
             ]
             cols_ocultar_html = ['horas_float', 'B2B']
         else:
             cols_visiveis = [
                 'Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 'Reincidência', 
-                'Origem', 'Horas Corridas', 'Status SLA', 'Último Status', 
+                'Origem', 'Horas Corridas', 'Status SLA', # 'Último Status', 
                 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos'
             ]
             cols_ocultar_html = ['horas_float']
@@ -875,7 +898,8 @@ if df_raw is not None:
             'Ocorrência': 'ID', 'Cabo/Primária': 'Cabo/Prim.', 
             'Afetação': 'Afet.', 'Reincidência': 'Reinc.',
             'Horas Corridas': 'Tempo', 'Status SLA': 'SLA',
-            'Último Status': 'Status', 'Cond. Alto Valor': 'A.V', 
+            # 'Último Status': 'Status',
+            'Cond. Alto Valor': 'A.V', 
             'Técnicos': 'Téc.'
         }
         df_tela.rename(columns=lambda x: dict_renomear.get(x, x), inplace=True)
