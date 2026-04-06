@@ -28,7 +28,7 @@ console_handler.setFormatter(log_format)
 
 # Root Logger: Configura o "pai" de todos os loggers
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.DEBUG)
+root_logger.setLevel(logging.INFO)
 root_logger.addHandler(console_handler)
 
 logger = logging.getLogger('main_app')
@@ -68,6 +68,9 @@ db = firestore.client()
 # ==============================================================================
 CONTRATOS_VALIDOS = ["ABILITY_SJ", "TEL_JI", "ABILITY_OS", "TEL_INTERIOR", "TEL_PC_SC", "TELEMONT"]
 nome_arq = datetime.now().strftime('%H%M')
+
+if 'contrato_ofensor' not in st.session_state:
+    st.session_state.contrato_ofensor = CONTRATOS_VALIDOS[0]
 
 # ==============================================================================
 # 🔐 SEGURANÇA E BANCO DE DADOS
@@ -264,7 +267,7 @@ with st.sidebar:
     if "mostrar_form_senha" not in st.session_state:
         st.session_state.mostrar_form_senha = False
     
-    if st.button("Alterar Senha", use_container_width=True):
+    if st.button("Alterar Senha", width='stretch'):
         st.session_state.mostrar_form_senha = True
 
     placeholder = st.empty()
@@ -322,12 +325,12 @@ with st.sidebar:
                     st.markdown(f"**{row.get('name', '')}** | {row.get('contract', '')}")
                     r_sel = st.selectbox("Perfil:", ["user", "admin"], key=f"r_{user.id}", label_visibility="collapsed")
                     c1, c2 = st.columns(2)
-                    if c1.button("✅ Aprovar", key=f"y_{user.id}", use_container_width=True): 
+                    if c1.button("✅ Aprovar", key=f"y_{user.id}", width='stretch'): 
                         user.reference.update({"approved": True, "role": r_sel})
                         st.toast(f"Utilizador {row.get('name')} aprovado!")
                         time.sleep(1)
                         st.rerun()
-                    if c2.button("❌ Recusar", key=f"n_{user.id}", use_container_width=True): 
+                    if c2.button("❌ Recusar", key=f"n_{user.id}", width='stretch'): 
                         user.reference.delete()
                         st.toast(f"Utilizador {row.get('name')} removido!")
                         time.sleep(1)
@@ -337,7 +340,7 @@ with st.sidebar:
 
     st.markdown("---")
     with st.container():
-        if st.button("🚪 Sair do Sistema", use_container_width=True):
+        if st.button("🚪 Sair do Sistema", width='stretch'):
             st.session_state.clear()
             st.rerun()
 
@@ -440,58 +443,46 @@ def carregar_dados_api():
 
 @st.cache_data(ttl=60, show_spinner=False)
 def carregar_dados_ofensores():
+    """Carrega a lista de ofensores da API, com cache de 60 segundos."""
     if not API_URL_OFENSORES: return None, "URL de Ofensores não configurada no secrets.toml."
     try:
+        logger.info(f'Requisitando lista de ofensores à API {API_URL_OFENSORES}')
         response = requests.get(API_URL_OFENSORES, headers=API_HEADERS, timeout=25)
         if response.status_code == 200:
-            logger.debug('lista de ofensoras recebida com sucesso.')
+            logger.info(f'lista de ofensoras recebida com sucesso. {len(response.json())} itens carregados.')
+            logger.info(f'campos do json {list(response.json()[0].keys()) if isinstance(response.json(), list) and len(response.json()) > 0 else "N/A"}')
             return response.json(), None
         return None, f"Erro {response.status_code}"
     except Exception as e: 
+        logger.error(f"Erro ao carregar dados de ofensores: {str(e)}")
         return None, str(e)
 
-def processar_json_ofensores(dados_json):
+def processar_json_ofensores(dados_json, contrato:str):
+    """Processa a estrutura JSON dos ofensores e retorna um DataFrame formatado."""
     linhas = []
     
-    if isinstance(dados_json, dict):
-        for key, value in dados_json.items():
-            if isinstance(value, list):
-                dados_json = value
-                break
-
-    if not isinstance(dados_json, list): return pd.DataFrame()
-
     for item in dados_json:
-        nome_completo = item.get("primaria", "")
-        detalhes = item.get("detalhes", [])
-        
-        volume = len(detalhes)
-        lista_ocs = [str(d.get("ocorrencia", "")) for d in detalhes]
-        ocorrencias_str = ", ".join(lista_ocs)
-        
-        busca = re.search(r'([A-Za-z]{2})(\d+)-(.*)', str(nome_completo))
-        
-        if busca:
-            at = busca.group(1).upper()
-            cb = busca.group(2)
-            prim = busca.group(3)
-        else:
-            at = "-"
-            cb = "-"
-            prim = nome_completo 
-            
+        contratada = item.get('contratada')
+        municipio = item.get('municipio')
+        cod_primaria = item.get('cod_primaria', '')
+        at = item.get('at', '')
+        volume = item.get("quantidade", 0)
+                
+        # busca = re.search(r'([A-Za-z]{2})(\d+)-(.*)', str(cod_primaria))
+
         linhas.append({
+            'Contratada': contratada,
+            'Município': municipio,
             "AT": at,
-            "Cabo": cb,
-            "Primária": prim,
+            'Primária': cod_primaria,
             "Volume (Falhas)": volume,
-            "Ocorrências (IDs)": ocorrencias_str
         })
         
     df = pd.DataFrame(linhas)
     if not df.empty:
-        df = df.sort_values(by="Volume (Falhas)", ascending=False)
-    return df
+        if contrato:
+            df = df[df['Contratada'] == contrato].sort_values(by="Volume (Falhas)", ascending=False)
+    return df.sort_values(by="Volume (Falhas)", ascending=False)
 
 def carregar_base_share():
     print("\n--- INÍCIO DA LEITURA DO SHARE ---")
@@ -768,7 +759,7 @@ if df_raw is not None:
             else:
                 contrato_atual = st.radio("Selecione o Contrato:", CONTRATOS_VALIDOS, horizontal=True, label_visibility="collapsed")
         with c_ref:
-            if st.button("🔄 Atualizar", use_container_width=True): carregar_dados_api.clear(); st.rerun()
+            if st.button("🔄 Atualizar", width='stretch'): carregar_dados_api.clear(); st.rerun()
 
         df_view = processar_dados(df_raw, contrato_atual)
         
@@ -808,7 +799,7 @@ if df_raw is not None:
         with st.expander("📂 Opções de Exportação"):
             c1, c2 = st.columns(2)
             try: 
-                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                c1.download_button("Baixar Resumo", gerar_cards_mpl(k, contrato_atual), f"resumo_{nome_arq}.jpg", "image/jpeg", width='stretch')
             except: pass
             
             cols_export = ['Ocorrência', 'Cabo/Primária', 'AT', 'Afetação', 'Reincidência', 'Origem', 'Horas Corridas', 'Status SLA', 'VIP', 'Cond. Alto Valor', 'B2B', 'Técnicos']
@@ -816,10 +807,10 @@ if df_raw is not None:
                 imgs = gerar_lista_mpl_from_view(df_view, cols_export, contrato_atual)
                 if imgs: 
                     if len(imgs) == 1:
-                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", use_container_width=True)
+                        c2.download_button("Baixar Lista", imgs[0], f"lista_{nome_arq}.jpg", "image/jpeg", width='stretch')
                     else:
                         for idx_img, img_bytes in enumerate(imgs):
-                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", use_container_width=True)
+                            c2.download_button(f"Baixar Lista (Pág {idx_img+1})", img_bytes, f"lista_{nome_arq}_p{idx_img+1}.jpg", "image/jpeg", width='stretch')
             except: pass
 
         # --- PAINEL DE INSERÇÃO DE STATUS ---
@@ -849,10 +840,10 @@ if df_raw is not None:
                     
         #             if PERFIL in ["master", "admin"]:
         #                 c_btn1, c_btn2 = st.columns(2)
-        #                 btn_salvar = c_btn1.form_submit_button("💾 Guardar Histórico", use_container_width=True)
-        #                 btn_apagar = c_btn2.form_submit_button("🗑️ Apagar Histórico", use_container_width=True)
+        #                 btn_salvar = c_btn1.form_submit_button("💾 Guardar Histórico", width='stretch')
+        #                 btn_apagar = c_btn2.form_submit_button("🗑️ Apagar Histórico", width='stretch')
         #             else:
-        #                 btn_salvar = st.form_submit_button("💾 Guardar Histórico", use_container_width=True)
+        #                 btn_salvar = st.form_submit_button("💾 Guardar Histórico", width='stretch')
         #                 btn_apagar = False
                         
         #             if btn_salvar:
@@ -947,7 +938,7 @@ if df_raw is not None:
                 with c2: 
                     st.write("")
                     st.write("")
-                    st.form_submit_button("Atualizar Visão", use_container_width=True)
+                    st.form_submit_button("Atualizar Visão", width='stretch')
             
             if sels:
                 df_cl = processar_dados(df_raw, sels)
@@ -992,7 +983,7 @@ if df_raw is not None:
                     'Criticos': 'Críticos (>24h)'
                 }).reset_index().sort_values('Total', ascending=False)
                 
-                st.dataframe(resumo, use_container_width=True, hide_index=True)
+                st.dataframe(resumo, width='stretch', hide_index=True)
             else:
                 st.warning("Selecione pelo menos um contrato.")
 
@@ -1003,11 +994,11 @@ if df_raw is not None:
         
         c_f1, c_f2 = st.columns([5, 1], gap="small")
         with c_f1:
-            at_sel = st.text_input("Filtrar por AT (Digite a sigla, ex: PE, TT):", placeholder="Deixe em branco para ver todas as ATs...").strip().upper()
+            at_sel = st.text_input("Filtrar por AT (Digite a sigla, ex: SJ, TT):", placeholder="Deixe em branco para ver todas as ATs...").strip().upper()
         with c_f2:
             st.write("")
             st.write("")
-            if st.button("🔄 Atualizar Base", use_container_width=True):
+            if st.button("🔄 Atualizar Base", width='stretch'):
                 carregar_dados_ofensores.clear()
                 st.rerun()
 
@@ -1016,7 +1007,7 @@ if df_raw is not None:
         dados_of, erro_of = carregar_dados_ofensores()
         
         if dados_of is not None:
-            df_rank = processar_json_ofensores(dados_of)
+            df_rank = processar_json_ofensores(dados_of, st.session_state.contrato_ofensor)
             
             if not df_rank.empty:
                 if at_sel:
@@ -1024,21 +1015,37 @@ if df_raw is not None:
                     df_rank = df_rank[df_rank['AT'].isin(ats_list)]
                     
                 if not df_rank.empty:
+                    c_sel, c_ref = st.columns([5, 1], gap="small")
+                    with c_sel:
+                        if CONTRATO and PERFIL not in ["master", "admin"]:
+                            st.info(f"A visualizar: {st.session_state.contrato_ofensor}")
+                        else:
+                            contrato_atual = st.radio(
+                                "Selecione o Contrato:",
+                                CONTRATOS_VALIDOS,
+                                horizontal=True,
+                                label_visibility="collapsed",
+                                key='contrato_ofensor'
+                            )
+                    # with c_ref:
+                    #     if st.button("🔄 Atualizar", width='stretch', key='btn_ofensores'): carregar_dados_ofensores.clear(); st.rerun()
+
                     top_1 = df_rank.iloc[0]
                     if top_1['Volume (Falhas)'] > 1:
                         st.markdown(f"""
                         <div style='background-color: #fee2e2; border-left: 5px solid #dc2626; padding: 15px; border-radius: 8px; margin-bottom: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
                             <h4 style='color: #991b1b; margin: 0; font-weight: 800;'>🚨 ALERTA DE OFENSOR CRÍTICO</h4>
                             <p style='color: #7f1d1d; margin: 5px 0 0 0; font-size: 15px;'>
-                                A primária <b>{top_1['Primária']}</b> (AT: {top_1['AT']} | Cabo: {top_1['Cabo']}) possui <b>{top_1['Volume (Falhas)']} chamados ativos</b> simultâneos.
+                                A primária <b>{top_1['Primária']}</b> (AT: {top_1['AT']}) possui <b>{top_1['Volume (Falhas)']} ocorrências repetidas.</b>.
                             </p>
                         </div>
                         """, unsafe_allow_html=True)
                         
                     st.markdown("##### 📋 Detalhamento dos Casos em Crise")
+                    # ofensores table
                     st.dataframe(
                         df_rank.style.set_properties(**{'text-align': 'center', 'font-weight': '600'}),
-                        use_container_width=True,
+                        width='stretch',
                         hide_index=True
                     )
                 else:
@@ -1104,7 +1111,7 @@ if df_raw is not None:
                     
                     st.dataframe(
                         df_style.style.apply(highlight_risco, axis=1).hide(subset=['Risco_Pct'], axis='columns').set_properties(**{'text-align': 'center'}),
-                        use_container_width=True,
+                        width='stretch',
                         hide_index=True
                     )
                 else:
