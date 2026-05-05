@@ -11,3 +11,6 @@ __pycache__/
 # Diretório de teste
 tests/
 .old/
+
+# Diretórios de documentação de desenvolvimento
+.docs
