@@ -17,7 +17,7 @@ services:
     depends_on:
       - app
     networks:
-      - monitoramento
+      - sigmaops
     restart: unless-stopped
 
 networks:
