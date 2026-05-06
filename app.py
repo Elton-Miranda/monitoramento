@@ -12,7 +12,7 @@ import streamlit as st
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
-from database import User, Session
+from database import Contract, User, Session
 
 # configurações de logging
 
@@ -144,11 +144,10 @@ if not st.session_state["logged_in"]:
                                         st.warning(
                                             "O seu acesso ainda está pendente de aprovação.")
                                     else:
-                                        senha_hash = user_ref.password.encode(
-                                        )
-                                        if bcrypt.checkpw(passwd.encode(), senha_hash):
+                                        senha_hash = user_ref.password.encode('utf-8')
+                                        if bcrypt.checkpw(passwd.encode('utf-8'), senha_hash):
                                             confirm_login(
-                                                user_ref.name, user_ref.email, user_ref.role, user_ref.contract)
+                                                user_ref.name, user_ref.email, user_ref.role, user_ref.contract_rel.name)
                                         else:
                                             st.error("Senha incorreta!")
                     else:
@@ -159,23 +158,24 @@ if not st.session_state["logged_in"]:
                 email = st.text_input("Email").strip()
                 contract = st.selectbox("Área", CONTRATOS_VALIDOS)
                 passwd = st.text_input("Senha", type="password")
-                hashed = bcrypt.hashpw(passwd.encode(), bcrypt.gensalt())
+                hashed = bcrypt.hashpw(passwd.encode('utf-8'), bcrypt.gensalt())
                 if st.form_submit_button("Solicitar Acesso"):
                     if name and email and passwd:
                         with Session() as session:
                             stmt = select(User.email).where(
                                 User.email == email)
-                            stmt_contract = select(User.contract).where(
-                                User.contract == contract)
+                            stmt_contract = select(Contract.id_contract).where(
+                                Contract.name == contract)
+                            id_contract = session.execute(
+                                stmt_contract).scalar_one_or_none()
                             if session.execute(stmt).scalar_one_or_none() is None:
                                 user = User(
                                     name=name,
                                     email=email,
-                                    contract=session.execute(
-                                        stmt_contract).scalar_one(),
-                                    password=hashed,
+                                    contract=id_contract,
+                                    password=hashed.decode('utf-8'),
                                 )
-                                session.add(User)
+                                session.add(user)
                                 session.commit()
                             else:
                                 st.error("O utilizador já existe!")
@@ -279,7 +279,6 @@ with st.sidebar:
                             CurrentUser = session.execute(
                                 stmt).scalar_one_or_none()
 
-                            # checkpoint
                             if CurrentUser:
                                 user_hash = CurrentUser.password
                                 if bcrypt.checkpw(current_pass.encode('utf-8'), user_hash.encode('utf-8')):
@@ -311,22 +310,25 @@ with st.sidebar:
             if users_pendent_approves:
                 st.warning(f"🔔 {len(users_pendent_approves)} Pendente(s)")
                 for user in users_pendent_approves:
-                    row = user.to_dict() or {}
+                    row = user.get('User', {})
                     with st.container(border=True):
                         st.markdown(
-                            f"**{row.get('name', '')}** | {row.get('contract', '')}")
+                            f"**{row.name}** | {row.contract_rel.name}")
                         r_sel = st.selectbox(
-                            "Perfil:", ["user", "admin"], key=f"r_{user.id}", label_visibility="collapsed")
+                            "Perfil:", ["user", "admin"],
+                            key=f"r_{row.id_user}", label_visibility="collapsed"
+                        )
                         c1, c2 = st.columns(2)
-                        if c1.button("✅ Aprovar", key=f"y_{user.id}", width='stretch'):
-                            user.reference.update(
-                                {"approved": True, "role": r_sel})
-                            st.toast(f"Utilizador {row.get('name')} aprovado!")
+                        if c1.button("✅ Aprovar", key=f"y_{row.id_user}", width='stretch'):
+                            row.approved = True
+                            session.commit()
+                            st.toast(f"Utilizador {row.name} aprovado!")
                             time.sleep(1)
                             st.rerun()
-                        if c2.button("❌ Recusar", key=f"n_{user.id}", width='stretch'):
-                            user.reference.delete()
-                            st.toast(f"Utilizador {row.get('name')} removido!")
+                        if c2.button("❌ Recusar", key=f"n_{row.id_user}", width='stretch'):
+                            session.delete(row)
+                            session.commit()
+                            st.toast(f"Utilizador {row.name} removido!")
                             time.sleep(1)
                             st.rerun()
             else:
@@ -360,26 +362,13 @@ def carregar_dados_api():
         except Exception as e:
             erro_msg = str(e)
 
-    df_hist = pd.DataFrame()
-    if os.path.exists("historico_sigma.json"):
-        try:
-            with open("historico_sigma.json", "r", encoding="utf-8") as f:
-                data_hist = json.load(f)
-                if 'ocorrencias' in data_hist:
-                    df_hist = pd.DataFrame(data_hist['ocorrencias'])
-                else:
-                    df_hist = pd.DataFrame(data_hist)
-        except:
-            pass
 
-    if df_api.empty and df_hist.empty:
+    if df_api.empty:
         return None, erro_msg or "Sem dados disponíveis."
 
-    df = pd.concat([df_hist, df_api], ignore_index=True)
-
-    if 'ocorrencia' in df.columns:
-        df['ocorrencia'] = df['ocorrencia'].astype(int)
-        df = df.drop_duplicates(subset=['ocorrencia'], keep='last')
+    if 'ocorrencia' in df_api.columns:
+        df_api['ocorrencia'] = df_api['ocorrencia'].astype(int)
+        df_api = df_api.drop_duplicates(subset=['ocorrencia'], keep='last')
 
     rename_map = {
         'ocorrencia': 'Ocorrência', 'data_abertura': 'Abertura', 'contrato': 'Contrato',
@@ -390,9 +379,9 @@ def carregar_dados_api():
         'propenso_anatel': 'Propensos - Anatel', 'reclamado_anatel': 'Reclamados - Anatel',
         'reincidencia': 'Reincidência'
     }
-    df.rename(columns=rename_map, inplace=True)
+    df_api.rename(columns=rename_map, inplace=True)
 
-    if 'Reincidência' in df.columns:
+    if 'Reincidência' in df_api.columns:
         def format_reinc(x):
             try:
                 if pd.isna(x) or str(x).strip() in ["", "nan", "None"]:
@@ -400,27 +389,27 @@ def carregar_dados_api():
                 return str(int(float(x)))
             except:
                 return ""
-        df['Reincidência'] = df['Reincidência'].apply(format_reinc)
+        df_api['Reincidência'] = df_api['Reincidência'].apply(format_reinc)
     else:
-        df['Reincidência'] = ""
+        df_api['Reincidência'] = ""
 
-    if 'equipamentos' in df.columns:
-        df['Cabo/Primária'] = df['equipamentos'].apply(
+    if 'equipamentos' in df_api.columns:
+        df_api['Cabo/Primária'] = df_api['equipamentos'].apply(
             lambda x: str(x[0]).strip() if isinstance(
                 x, list) and len(x) > 0 else "-"
         )
     else:
-        df['Cabo/Primária'] = "-"
+        df_api['Cabo/Primária'] = "-"
 
-    df['Abertura_dt'] = pd.to_datetime(df['Abertura'], errors='coerce')
+    df_api['Abertura_dt'] = pd.to_datetime(df_api['Abertura'], errors='coerce')
 
-    if 'Técnicos' in df.columns:
-        df['Técnicos'] = df['Técnicos'].apply(
+    if 'Técnicos' in df_api.columns:
+        df_api['Técnicos'] = df_api['Técnicos'].apply(
             lambda x: len(x) if isinstance(x, list) else 0)
 
-    if 'Afetação' in df.columns:
-        df['Afetação'] = pd.to_numeric(
-            df['Afetação'], errors='coerce').fillna(0).astype(int)
+    if 'Afetação' in df_api.columns:
+        df_api['Afetação'] = pd.to_numeric(
+            df_api['Afetação'], errors='coerce').fillna(0).astype(int)
 
     def formatar_flag(val):
         if pd.isna(val):
@@ -434,13 +423,13 @@ def carregar_dados_api():
             return 'NÃO'
 
     for col in ['VIP', 'Cond. Alto Valor', 'B2B']:
-        if col in df.columns:
-            df[col] = df[col].apply(formatar_flag)
+        if col in df_api.columns:
+            df_api[col] = df_api[col].apply(formatar_flag)
 
-    if 'municipio' in df.columns:
-        df.rename(columns={'municipio': 'Cidade_Real'}, inplace=True)
+    if 'municipio' in df_api.columns:
+        df_api.rename(columns={'municipio': 'Cidade_Real'}, inplace=True)
 
-    return df, None
+    return df_api, None
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -986,12 +975,11 @@ if df_raw is not None:
         cols_logica = list(dict.fromkeys(cols_visiveis + cols_ocultar_html))
         c_final = [c for c in cols_logica if c in df_view.columns]
 
-        df_tela = df_view[c_final].copy()
+        df_tela = df_view[c_final].drop(columns=['horas_float']).copy()
         dict_renomear = {
             'Ocorrência': 'ID', 'Cabo/Primária': 'Cabo/Prim.',
             'Afetação': 'Afet.', 'Reincidência': 'Reinc.',
             'Horas Corridas': 'Tempo', 'Status SLA': 'SLA',
-            # 'Último Status': 'Status',
             'Cond. Alto Valor': 'A.V',
             'Técnicos': 'Téc.'
         }

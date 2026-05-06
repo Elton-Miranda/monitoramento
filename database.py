@@ -2,10 +2,10 @@ import bcrypt
 from datetime import datetime
 from sqlalchemy import ForeignKey, create_engine, func, event, Engine
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
-engine = create_engine('sqlite:///user.db', echo=True)
-Session = sessionmaker(bind=engine, expire_on_commit=False)
+engine = create_engine('sqlite:///user.db')
+Session = sessionmaker(bind=engine, expire_on_commit=False, autocommit=False, autoflush=False)
 
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
@@ -23,6 +23,8 @@ class Contract(Base):
     id_contract: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(nullable=False, unique=True)
 
+    users: Mapped[list['User']] = relationship(back_populates='contract_rel')
+
 
 class User(Base):
     __tablename__ = 'users'
@@ -35,6 +37,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(nullable=False, unique=True)
     password: Mapped[str] = mapped_column(nullable=False)
     role: Mapped[str] = mapped_column(nullable=False, default='user')
+
+    contract_rel: Mapped['Contract'] = relationship(back_populates='users')
 
 
 

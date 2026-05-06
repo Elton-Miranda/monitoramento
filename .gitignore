@@ -14,3 +14,6 @@ tests/
 
 # Diretórios de documentação de desenvolvimento
 .docs
+
+# Banco de dados sqlite
+*.db
