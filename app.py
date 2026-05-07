@@ -975,18 +975,22 @@ if df_raw is not None:
         cols_logica = list(dict.fromkeys(cols_visiveis + cols_ocultar_html))
         c_final = [c for c in cols_logica if c in df_view.columns]
 
-        df_tela = df_view[c_final].drop(columns=['horas_float']).copy()
+        df_tela = df_view[c_final]#.drop(columns=['horas_float']).copy()
+
         dict_renomear = {
-            'Ocorrência': 'ID', 'Cabo/Primária': 'Cabo/Prim.',
-            'Afetação': 'Afet.', 'Reincidência': 'Reinc.',
-            'Horas Corridas': 'Tempo', 'Status SLA': 'SLA',
+            'Ocorrência': 'ID',
+            'Cabo/Primária': 'Cabo/Prim.',
+            'Afetação': 'Afet.',
+            'Reincidência': 'Reinc.',
+            'Horas Corridas': 'Tempo',
+            'Status SLA': 'SLA',
             'Cond. Alto Valor': 'A.V',
             'Técnicos': 'Téc.'
         }
         df_tela.rename(columns=lambda x: dict_renomear.get(x, x), inplace=True)
 
         def highlight_rows_tela(row):
-            h = row.get('horas_float', 0)
+            h = row.get('horas_float', 0) # checkpoint
             is_b2b = str(row.get('B2B', 'NÃO')).upper() == 'SIM'
             limite_fora = 4 if is_b2b else 8
 
@@ -1013,8 +1017,7 @@ if df_raw is not None:
                 styles.append(cell_style)
             return styles
 
-        # ocultar_final = [dict_renomear.get(
-        #     c, c) for c in cols_ocultar_html if c in df_view.columns]
+        ocultar_final = [dict_renomear.get(c, c) for c in cols_ocultar_html if c in df_view.columns]
 
         tabela_html = (
             df_tela.style
@@ -1037,7 +1040,7 @@ if df_raw is not None:
                 ]}
             ])
             .hide(axis='index')
-            # .hide(subset=ocultar_final, axis='columns')
+            .hide(subset=list(ocultar_final), axis='columns')
             .to_html()
         )
 
