@@ -109,6 +109,8 @@ def confirm_login(user_name: str, email: str, role: str, contract: str | list[st
     logger.debug(f'{st.session_state.contract=}')
     st.rerun()
 
+def atualizar_contrato_callback():
+    st.session_state.contract = st.session_state.contrato_ofensor
 
 if not st.session_state["logged_in"]:
     st.query_params.clear()
@@ -1115,6 +1117,8 @@ if df_raw is not None:
             "<h3 style='color:#1e293b;'>🏆 Ranking de Primárias Ofensoras</h3>", unsafe_allow_html=True)
         st.markdown(
             "Monitorização de equipamentos em crise com base na API em tempo real.")
+        
+        logger.info(f'selecionado aba ofensores {st.session_state.contract}')
 
         # 1. Lógica de renderização visual (Exclusiva para master/admin)
         if st.session_state.role in ["master", "admin"]:
@@ -1123,7 +1127,9 @@ if df_raw is not None:
             with c_f1:
                 at_sel = st.text_input(
                     "Filtrar por AT (Digite a sigla, ex: SJ, TT):",
-                    placeholder="Deixe em branco para ver todas as ATs..."
+                    placeholder="Deixe em branco para ver todas as ATs...",
+                    disabled=True,
+                    icon='🔍'
                 ).strip().upper()
 
             with c_f2:
@@ -1152,9 +1158,11 @@ if df_raw is not None:
                                 horizontal=True,
                                 label_visibility="collapsed",
                                 key='contrato_ofensor',
-                                width='content'
+                                width='content',
+                                index=CONTRATOS_VALIDOS.index(st.session_state.contract),
+                                on_change=atualizar_contrato_callback,
                             )
-                    if PERFIL not in ['admin', 'master']:
+                    else:
                         if st.button("🔄 Atualizar Base", use_container_width=False):
                             carregar_dados_ofensores.clear()
                             st.rerun()
