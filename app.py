@@ -1,7 +1,5 @@
 import bcrypt
 import io
-import json
-import logging
 import os
 import time
 import matplotlib.patches as patches
@@ -10,26 +8,18 @@ import requests
 import streamlit as st
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from sqlalchemy import select
-
 from database import Contract, User, Session
+from loguru import logger
 
-# configurações de logging
-
-fmt = '%(asctime)s - [%(levelname)s] %(name)s->%(funcName)s:%(lineno)d | %(message)s'
-date_format = '%d/%m/%y %H:%M:%S'
-log_format = logging.Formatter(fmt=fmt, datefmt=date_format)
-
-# Handler para Console
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(log_format)
-
-# Root Logger: Configura o "pai" de todos os loggers
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
-root_logger.addHandler(console_handler)
-
-logger = logging.getLogger('main_app')
+logger.add(
+    "./logs/file_{time:YYYY-MM-DD}.log",
+    rotation="10 MB",    # Cria novo arquivo ao atingir 500MB
+    retention="10 days",  # Mantém logs por 10 dias
+    compression="zip",    # Compacta arquivos antigos
+    level="INFO"          # Define o nível mínimo para este arquivo
+)
 
 # Versão do SigmaOPS
 version = "1.3.2"
@@ -92,13 +82,31 @@ if "logged_in" not in st.session_state:
         "username": None,
         "email": None,
         "role": None,
-        "allowed_contract": None
+        "allowed_contract": None,
+        "contrato": None,
     })
 
 
-def confirm_login(u, e, r, c):
-    st.session_state.update(
-        {"logged_in": True, "username": u, "email": e, "role": r, "allowed_contract": c})
+def confirm_login(user_name: str, email: str, role: str, contract: str | list[str]) -> None:
+    '''Atualiza o estado de sessão para refletir o login bem-sucedido e recarrega a aplicação.'''
+    if isinstance(contract, list):
+        default = contract[0]
+    else:
+        if contract == 'MASTER':
+            default = 'ABILITY_SJ'
+        else:
+            default = contract
+        
+    st.session_state.update({
+        "logged_in": True,
+        "username": user_name,
+        "email": email,
+        "role": role,
+        "allowed_contract": contract,
+        "contract": default
+    })
+    logger.debug(f'Usuário "{email}" logado com sucesso.')
+    logger.debug(f'{st.session_state.contract=}')
     st.rerun()
 
 
@@ -144,7 +152,8 @@ if not st.session_state["logged_in"]:
                                         st.warning(
                                             "O seu acesso ainda está pendente de aprovação.")
                                     else:
-                                        senha_hash = user_ref.password.encode('utf-8')
+                                        senha_hash = user_ref.password.encode(
+                                            'utf-8')
                                         if bcrypt.checkpw(passwd.encode('utf-8'), senha_hash):
                                             confirm_login(
                                                 user_ref.name, user_ref.email, user_ref.role, user_ref.contract_rel.name)
@@ -158,7 +167,8 @@ if not st.session_state["logged_in"]:
                 email = st.text_input("Email").strip()
                 contract = st.selectbox("Área", CONTRATOS_VALIDOS)
                 passwd = st.text_input("Senha", type="password")
-                hashed = bcrypt.hashpw(passwd.encode('utf-8'), bcrypt.gensalt())
+                hashed = bcrypt.hashpw(
+                    passwd.encode('utf-8'), bcrypt.gensalt())
                 if st.form_submit_button("Solicitar Acesso"):
                     if name and email and passwd:
                         with Session() as session:
@@ -362,7 +372,6 @@ def carregar_dados_api():
         except Exception as e:
             erro_msg = str(e)
 
-
     if df_api.empty:
         return None, erro_msg or "Sem dados disponíveis."
 
@@ -433,20 +442,24 @@ def carregar_dados_api():
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def carregar_dados_ofensores():
+def carregar_dados_ofensores(contrato_ofensor):
     """Carrega a lista de ofensores da API, com cache de 60 segundos."""
     if not API_URL_OFENSORES:
         return None, "URL de Ofensores não configurada no secrets.toml."
     try:
-        logger.info(
-            f'Requisitando lista de ofensores à API {API_URL_OFENSORES}')
         response = requests.get(
-            API_URL_OFENSORES, headers=API_HEADERS, timeout=25)
+            API_URL_OFENSORES,
+            params={
+                "contrato": contrato_ofensor,
+                "range": 30,
+            },
+            headers=API_HEADERS,
+            timeout=25
+        )
+
         if response.status_code == 200:
-            logger.info(
-                f'lista de ofensoras recebida com sucesso. {len(response.json())} itens carregados.')
-            logger.info(
-                f'campos do json {list(response.json()[0].keys()) if isinstance(response.json(), list) and len(response.json()) > 0 else "N/A"}')
+            logger.info(f'{contrato_ofensor=}')
+            logger.info(f'{len(response.json())} itens carregados.')
             return response.json(), None
         return None, f"Erro {response.status_code}"
     except Exception as e:
@@ -454,33 +467,19 @@ def carregar_dados_ofensores():
         return None, str(e)
 
 
-def processar_json_ofensores(dados_json, contrato: str) -> pd.DataFrame:
+def processar_json_ofensores(dados_json) -> pd.DataFrame:
     """Processa a estrutura JSON dos ofensores e retorna um DataFrame formatado."""
     linhas = []
 
     for item in dados_json:
-        contratada = item.get('contratada')
         cod_primaria = item.get('cod_primaria', '')
-        # municipio = item.get('municipio')
-        at = item.get('at', '')
         volume = item.get("quantidade", 0)
-
-        # busca = re.search(r'([A-Za-z]{2})(\d+)-(.*)', str(cod_primaria))
-
         linhas.append({
-            'Contratada': contratada,
-            # 'Município': municipio,
-            "AT": at,
             'Primária': cod_primaria,
             "Volume (Falhas)": volume,
         })
 
-    df = pd.DataFrame(linhas)
-    if not df.empty:
-        if contrato:
-            df = df[df['Contratada'] == contrato].sort_values(
-                by="Volume (Falhas)", ascending=False)
-    return df.sort_values(by="Volume (Falhas)", ascending=False)
+    return pd.DataFrame(linhas).sort_values(by="Volume (Falhas)", ascending=False)
 
 
 def carregar_base_share():
@@ -494,20 +493,15 @@ def carregar_base_share():
     ]
 
     for file in file_options:
-        if os.path.exists(file):
+        filepath = Path.cwd().joinpath(file)
+        st.markdown(filepath)
+        if os.path.exists(filepath):
             print(f"⏳ Ficheiro encontrado: {file}. A tentar ler...")
             try:
                 if file.endswith('.xlsx'):
-                    df = pd.read_excel(file)
+                    df = pd.read_excel(filepath)
                 else:
-                    # Tenta vírgula normal (ERRO DE DIGITAÇÃO CORRIGIDO AQUI)
-                    df = pd.read_csv(file)
-
-                    # Se detetar que só criou 1 coluna, o Excel exportou com ponto e vírgula
-                    if len(df.columns) < 3:
-                        print(
-                            "Aviso: Formato incorreto detetado, a tentar com separador ';'")
-                        df = pd.read_csv(file, sep=';')
+                    df = pd.read_csv(filepath, sep=';')
 
                 print(
                     f"✅ Ficheiro {file} lido com sucesso. Linhas totais: {len(df)}")
@@ -819,6 +813,7 @@ if df_raw is not None:
         tab_cl = None
 
     # --- ABA OPERACIONAL ---
+    st.toast('Aba **Ofensores** está :violet[operacional!]', icon="🚨")
     with tab_op:
         c_sel, c_ref = st.columns([5, 1], gap="small")
         with c_sel:
@@ -975,7 +970,7 @@ if df_raw is not None:
         cols_logica = list(dict.fromkeys(cols_visiveis + cols_ocultar_html))
         c_final = [c for c in cols_logica if c in df_view.columns]
 
-        df_tela = df_view[c_final]#.drop(columns=['horas_float']).copy()
+        df_tela = df_view[c_final]  # .drop(columns=['horas_float']).copy()
 
         dict_renomear = {
             'Ocorrência': 'ID',
@@ -990,7 +985,7 @@ if df_raw is not None:
         df_tela.rename(columns=lambda x: dict_renomear.get(x, x), inplace=True)
 
         def highlight_rows_tela(row):
-            h = row.get('horas_float', 0) # checkpoint
+            h = row.get('horas_float', 0)  # checkpoint
             is_b2b = str(row.get('B2B', 'NÃO')).upper() == 'SIM'
             limite_fora = 4 if is_b2b else 8
 
@@ -1017,7 +1012,8 @@ if df_raw is not None:
                 styles.append(cell_style)
             return styles
 
-        ocultar_final = [dict_renomear.get(c, c) for c in cols_ocultar_html if c in df_view.columns]
+        ocultar_final = [dict_renomear.get(
+            c, c) for c in cols_ocultar_html if c in df_view.columns]
 
         tabela_html = (
             df_tela.style
@@ -1113,53 +1109,55 @@ if df_raw is not None:
             else:
                 st.warning("Selecione pelo menos um contrato.")
 
-    # --- ABA OFENSORES (NOVA API DIRETA) ---
+    # --- ABA OFENSORES ---
     with tab_of:
         st.markdown(
             "<h3 style='color:#1e293b;'>🏆 Ranking de Primárias Ofensoras</h3>", unsafe_allow_html=True)
         st.markdown(
             "Monitorização de equipamentos em crise com base na API em tempo real.")
 
-        c_f1, c_f2 = st.columns([5, 1], gap="small")
-        with c_f1:
-            at_sel = st.text_input("Filtrar por AT (Digite a sigla, ex: SJ, TT):",
-                                   placeholder="Deixe em branco para ver todas as ATs...").strip().upper()
-        with c_f2:
-            st.write("")
-            st.write("")
-            if st.button("🔄 Atualizar Base", width='stretch'):
-                carregar_dados_ofensores.clear()
-                st.rerun()
+        # 1. Lógica de renderização visual (Exclusiva para master/admin)
+        if st.session_state.role in ["master", "admin"]:
+            c_f1, c_f2 = st.columns([5, 1], gap="xxsmall", vertical_alignment="bottom")
 
-        st.write("")
+            with c_f1:
+                at_sel = st.text_input(
+                    "Filtrar por AT (Digite a sigla, ex: SJ, TT):",
+                    placeholder="Deixe em branco para ver todas as ATs..."
+                ).strip().upper()
 
-        dados_of, erro_of = carregar_dados_ofensores()
+            with c_f2:
+                if st.button("🔄 Atualizar", use_container_width=True, key='btn_upd1'):
+                    carregar_dados_ofensores.clear()
+                    st.rerun()
+        else:
+            # Para usuários comuns, os componentes visuais acima simplesmente NÃO aparecem.
+            # Definimos a variável 'at_sel' vazia para evitar erros (NameError) no restante do código.
+            at_sel = ""
+            st.session_state.contract = contrato_atual
+
+        dados_of, erro_of = carregar_dados_ofensores(st.session_state.contract)
 
         if dados_of is not None:
-            df_rank = processar_json_ofensores(
-                dados_of, st.session_state.contrato_ofensor)
+            df_rank = processar_json_ofensores(dados_of)
 
             if not df_rank.empty:
-                if at_sel:
-                    ats_list = [x.strip() for x in at_sel.split(',')]
-                    df_rank = df_rank[df_rank['AT'].isin(ats_list)]
-
                 if not df_rank.empty:
-                    c_sel, c_ref = st.columns([5, 1], gap="small")
-                    with c_sel:
-                        if CONTRATO and PERFIL not in ["master", "admin"]:
-                            st.info(
-                                f"A visualizar: {st.session_state.contrato_ofensor}")
-                        else:
-                            contrato_atual = st.radio(
+                    if st.session_state.role in ['master', 'admin']:
+                        c_sel, c_ref = st.columns([5, 1], gap="small")
+                        with c_sel:
+                            st.session_state.contract = st.radio(
                                 "Selecione o Contrato:",
                                 CONTRATOS_VALIDOS,
                                 horizontal=True,
                                 label_visibility="collapsed",
-                                key='contrato_ofensor'
+                                key='contrato_ofensor',
+                                width='content'
                             )
-                    # with c_ref:
-                    #     if st.button("🔄 Atualizar", width='stretch', key='btn_ofensores'): carregar_dados_ofensores.clear(); st.rerun()
+                    if PERFIL not in ['admin', 'master']:
+                        if st.button("🔄 Atualizar Base", use_container_width=False):
+                            carregar_dados_ofensores.clear()
+                            st.rerun()
 
                     top_1 = df_rank.iloc[0]
                     if top_1['Volume (Falhas)'] > 1:
@@ -1167,27 +1165,19 @@ if df_raw is not None:
                         <div style='background-color: #fee2e2; border-left: 5px solid #dc2626; padding: 15px; border-radius: 8px; margin-bottom: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
                             <h4 style='color: #991b1b; margin: 0; font-weight: 800;'>🚨 ALERTA DE OFENSOR CRÍTICO</h4>
                             <p style='color: #7f1d1d; margin: 5px 0 0 0; font-size: 15px;'>
-                                A primária <b>{top_1['Primária']}</b> (AT: {top_1['AT']}) possui <b>{top_1['Volume (Falhas)']} ocorrências repetidas.</b>.
+                                A primária <b>{top_1['Primária']}</b> possui <b>{top_1['Volume (Falhas)']} ocorrências repetidas.</b>.
                             </p>
                         </div>
                         """, unsafe_allow_html=True)
 
-                    st.markdown("##### 📋 Detalhamento dos Casos em Crise")
-                    df_rank['ID'] = '-'
-                    df_rank['NUM_SPR'] = '-'
-                    df_rank['DATA_SPR'] = '-'
-                    df_rank['ESTEIRA'] = '-'
-                    df_rank['EXECUÇÃO'] = '-'
+                    st.markdown("##### 📋 Detalhamento dos casos repetidos")
                     st.dataframe(
                         df_rank[[
-                            'AT', 'Primária', 'Volume (Falhas)', 'ID',
-                            'NUM_SPR', 'DATA_SPR', 'ESTEIRA', 'EXECUÇÃO'
+                            'Primária',
+                            'Volume (Falhas)',
                         ]],
-                        # .style.set_properties(**{
-                        #     'text-align': 'center',
-                        #     'font-weight': '600'
-                        # }),
-                        use_container_width=True,
+                        # TODO: modificar o estilo das linhas
+                        # width='stretch',
                         hide_index=True
                     )
                 else:
@@ -1201,87 +1191,89 @@ if df_raw is not None:
 
     # --- ABA CRITICIDADE SHARE ---
     with tab_share:
-        st.markdown(
-            "<h3 style='color:#1e293b;'>📉 Análise de Criticidade (Share da AT)</h3>", unsafe_allow_html=True)
-        st.markdown("Calcula a percentagem de clientes offline em relação ao tamanho total da central (AT). Permite descobrir quando uma ocorrência pequena em números absolutos é, na verdade, uma falha gravíssima e de grande impacto relativo para aquela localidade.")
+        st.markdown('Em construção ... 🚧')
+    #     st.markdown(
+    #         "<h3 style='color:#1e293b;'>📉 Análise de Criticidade (Share da AT)</h3>", unsafe_allow_html=True)
+    #     st.markdown("Calcula a percentagem de clientes offline em relação ao tamanho total da central (AT). Permite descobrir quando uma ocorrência pequena em números absolutos é, na verdade, uma falha gravíssima e de grande impacto relativo para aquela localidade.")
 
-        dict_share = carregar_base_share()
+    #     dict_share = carregar_base_share()
 
-        if not dict_share:
-            st.warning(
-                "⚠️ Ficheiro de Share não encontrado. Coloque o ficheiro CSV extraído de Share na mesma pasta do sistema para ativar esta função.")
-        else:
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                limite_critico = st.slider("🚨 Alerta de Crise a partir de (%)", min_value=1.0, max_value=20.0, value=3.0, step=0.5,
-                                           help="Pela regra de ouro: Perder mais de 3% de toda a central num único evento já configura um cenário crítico ou de Grande Vulto.")
+    #     if not dict_share:
+    #         st.warning(
+    #             "⚠️ Ficheiro de Share não encontrado. Coloque o ficheiro CSV extraído de Share na mesma pasta do sistema para ativar esta função.")
+    #     else:
+    #         c1, c2 = st.columns([1, 2])
+    #         with c1:
+    #             limite_critico = st.slider("🚨 Alerta de Crise a partir de (%)", min_value=1.0, max_value=20.0, value=3.0, step=0.5,
+    #                                        help="Pela regra de ouro: Perder mais de 3% de toda a central num único evento já configura um cenário crítico ou de Grande Vulto.")
 
-            df_share = df_view.copy()
-            df_share['AT_Clean'] = df_share['AT'].astype(
-                str).str.split('-').str[0].str.strip().str.upper()
+    #         df_share = df_view.copy()
 
-            df_share = df_share[(df_share['AT_Clean'] != '-')
-                                & (df_share['Afetação'] > 0)].copy()
+    #         df_share['AT_Clean'] = df_share['AT'].astype(
+    #             str).str.split('-').str[0].str.strip().str.upper()
 
-            if not df_share.empty:
-                df_share['Total_Clientes_AT'] = df_share['AT_Clean'].map(
-                    dict_share)
-                df_share = df_share.dropna(subset=['Total_Clientes_AT'])
+    #         df_share = df_share[(df_share['AT_Clean'] != '-')
+    #                             & (df_share['Afetação'] > 0)].copy()
 
-                if not df_share.empty:
-                    df_share['Total_Clientes_AT'] = df_share['Total_Clientes_AT'].astype(
-                        int)
-                    df_share['Risco_Pct'] = (
-                        df_share['Afetação'] / df_share['Total_Clientes_AT']) * 100
+    #         if not df_share.empty:
+    #             df_share['Total_Clientes_AT'] = df_share['AT_Clean'].map(
+    #                 dict_share)
+    #             df_share = df_share.dropna(subset=['Total_Clientes_AT'])
 
-                    df_share = df_share.sort_values(
-                        by='Risco_Pct', ascending=False)
+    #             if not df_share.empty:
+    #                 df_share['Total_Clientes_AT'] = df_share['Total_Clientes_AT'].astype(
+    #                     int)
+    #                 df_share['Risco_Pct'] = (
+    #                     df_share['Afetação'] / df_share['Total_Clientes_AT']) * 100
 
-                    qtd_criticos = len(
-                        df_share[df_share['Risco_Pct'] >= limite_critico])
-                    pior_oc = df_share.iloc[0]
+    #                 df_share = df_share.sort_values(
+    #                     by='Risco_Pct', ascending=False)
 
-                    c_k1, c_k2, c_k3 = st.columns(3)
-                    c_k1.markdown(
-                        f"<div class='alert-box' style='background:#fef2f2; border-color:#fecaca;'><div style='color:#991b1b; font-size:12px;'>Ocorrências em Crise (>{limite_critico}%)</div><div style='font-size:24px; font-weight:900;'>{qtd_criticos}</div></div>", unsafe_allow_html=True)
+    #                 qtd_criticos = len(
+    #                     df_share[df_share['Risco_Pct'] >= limite_critico])
+    #                 pior_oc = df_share.iloc[0]
 
-                    cor_pior = '#dc2626' if pior_oc['Risco_Pct'] >= limite_critico else '#d97706'
-                    c_k2.markdown(
-                        f"<div class='alert-box' style='background:#fffbeb; border-color:#fde68a;'><div style='color:#92400e; font-size:12px;'>Maior Risco Atual (AT: {pior_oc['AT_Clean']})</div><div style='font-size:24px; font-weight:900; color:{cor_pior};'>{pior_oc['Risco_Pct']:.2f}% de toda a Central</div></div>", unsafe_allow_html=True)
+    #                 c_k1, c_k2, c_k3 = st.columns(3)
+    #                 c_k1.markdown(
+    #                     f"<div class='alert-box' style='background:#fef2f2; border-color:#fecaca;'><div style='color:#991b1b; font-size:12px;'>Ocorrências em Crise (>{limite_critico}%)</div><div style='font-size:24px; font-weight:900;'>{qtd_criticos}</div></div>", unsafe_allow_html=True)
 
-                    st.write("")
-                    st.markdown(
-                        "##### 📋 Ocorrências classificadas por Risco de Impacto")
+    #                 cor_pior = '#dc2626' if pior_oc['Risco_Pct'] >= limite_critico else '#d97706'
+    #                 c_k2.markdown(
+    #                     f"<div class='alert-box' style='background:#fffbeb; border-color:#fde68a;'><div style='color:#92400e; font-size:12px;'>Maior Risco Atual (AT: {pior_oc['AT_Clean']})</div><div style='font-size:24px; font-weight:900; color:{cor_pior};'>{pior_oc['Risco_Pct']:.2f}% de toda a Central</div></div>", unsafe_allow_html=True)
 
-                    df_share['Risco (%)'] = df_share['Risco_Pct'].apply(
-                        lambda x: f"{x:.2f}%")
+    #                 st.write("")
+    #                 st.markdown(
+    #                     "##### 📋 Ocorrências classificadas por Risco de Impacto")
 
-                    cols_exibicao = ['Ocorrência', 'AT_Clean', 'Cabo/Primária',
-                                     'Afetação', 'Total_Clientes_AT', 'Risco (%)', 'Último Status']
-                    df_style = df_share[cols_exibicao + ['Risco_Pct']].rename(
-                        columns={'AT_Clean': 'AT', 'Total_Clientes_AT': 'Tamanho da Central (Share)', 'Afetação': 'Clientes Fora'})
+    #                 df_share['Risco (%)'] = df_share['Risco_Pct'].apply(
+    #                     lambda x: f"{x:.2f}%")
 
-                    def highlight_risco(row):
-                        risco = row.get('Risco_Pct', 0)
-                        if risco >= limite_critico:
-                            return ['background-color: #fee2e2; color: #991b1b; font-weight: 800;' for _ in row]
-                        elif risco >= limite_critico / 2:
-                            return ['background-color: #fffbeb; color: #92400e; font-weight: 600;' for _ in row]
-                        return ['' for _ in row]
+    #                 cols_exibicao = ['Ocorrência', 'AT_Clean', 'Cabo/Primária',
+    #                                  'Afetação', 'Total_Clientes_AT', 'Risco (%)']
+    #                 df_style = df_share[cols_exibicao + ['Risco_Pct']].rename(
+    #                     columns={'AT_Clean': 'AT', 'Total_Clientes_AT': 'Tamanho da Central (Share)', 'Afetação': 'Clientes Fora'})
 
-                    st.dataframe(
-                        df_style.style.apply(highlight_risco, axis=1).hide(
-                            subset=['Risco_Pct'], axis='columns'
-                        ),
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                else:
-                    st.info(
-                        "Nenhuma das ATs com falha no momento foi encontrada no ficheiro de Share. Verifique as siglas das ATs.")
-            else:
-                st.info(
-                    "Não há ocorrências com afetação nas ATs no momento (Todas zeradas).")
+    #                 def highlight_risco(row):
+    #                     risco = row.get('Risco_Pct', 0)
+    #                     if risco >= limite_critico:
+    #                         return ['background-color: #fee2e2; color: #991b1b; font-weight: 800;' for _ in row]
+    #                     elif risco >= limite_critico / 2:
+    #                         return ['background-color: #fffbeb; color: #92400e; font-weight: 600;' for _ in row]
+    #                     return ['' for _ in row]
+
+    #                 st.dataframe(
+    #                     df_style.style.apply(highlight_risco, axis=1).hide(
+    #                         subset=['Risco_Pct'], axis='columns'
+    #                     ),
+    #                     width='stretch',
+    #                     hide_index=True
+    #                 )
+    #             else:
+    #                 st.info(
+    #                     "Nenhuma das ATs com falha no momento foi encontrada no ficheiro de Share. Verifique as siglas das ATs.")
+    #         else:
+    #             st.info(
+    #                 "Não há ocorrências com afetação nas ATs no momento (Todas zeradas).")
 
 else:
     st.error("Erro ao carregar dados.")
