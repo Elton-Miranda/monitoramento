@@ -71,8 +71,7 @@ def get_secret(section, key):
 API_URL = get_secret("api", "url") or ""
 API_URL_OFENSORES = get_secret("api", "url_ofensores") or ""
 API_HEADERS = (
-    dict(st.secrets["api"].get("headers", {})
-         ) if get_secret("api", "headers") else {}
+    dict(st.secrets["api"].get("headers", {})) if get_secret("api", "headers") else {}
 )
 
 # ==============================================================================
@@ -113,7 +112,7 @@ def confirm_login(
             "contract": default,
         }
     )
-    logger.info(f'Usuário:{email} do contrato contrato:{contract} logado.')
+    logger.info(f"Usuário:{email} do contrato contrato:{contract} logado.")
     st.rerun()
 
 
@@ -147,8 +146,8 @@ if not st.session_state["logged_in"]:
         t1, t2 = st.tabs(["Acessar", "Registar"])
         with t1:
             with st.form("login_form"):
-                email = st.text_input("E-mail", icon='📧').strip()
-                passwd = st.text_input("Senha", type="password", icon='🔐')
+                email = st.text_input("E-mail", icon="📧").strip()
+                passwd = st.text_input("Senha", type="password", icon="🔐")
                 if st.form_submit_button("Entrar"):
                     if email and passwd:
                         master_email = get_secret("master", "email")
@@ -159,13 +158,11 @@ if not st.session_state["logged_in"]:
                             and email == master_email
                             and passwd == master_pass
                         ):
-                            confirm_login("Master Admin",
-                                          "master", "Geral", "master")
+                            confirm_login("Master Admin", "master", "Geral", "master")
                         else:
                             with Session() as session:
                                 stmt = select(User).where(User.email == email)
-                                user_ref = session.execute(
-                                    stmt).scalar_one_or_none()
+                                user_ref = session.execute(stmt).scalar_one_or_none()
                                 if user_ref is None:
                                     st.error("Utilizador não encontrado!")
                                 else:
@@ -174,8 +171,7 @@ if not st.session_state["logged_in"]:
                                             "O seu acesso ainda está pendente de aprovação."
                                         )
                                     else:
-                                        senha_hash = user_ref.password.encode(
-                                            "utf-8")
+                                        senha_hash = user_ref.password.encode("utf-8")
                                         if bcrypt.checkpw(
                                             passwd.encode("utf-8"), senha_hash
                                         ):
@@ -191,17 +187,15 @@ if not st.session_state["logged_in"]:
                         st.warning("Preencha todos os campos.")
         with t2:
             with st.form("reg_form"):
-                name = st.text_input("Nome", icon='👤').strip()
-                email = st.text_input("Email", icon='📧').strip()
+                name = st.text_input("Nome", icon="👤").strip()
+                email = st.text_input("Email", icon="📧").strip()
                 contract = st.selectbox("Área", CONTRATOS_VALIDOS)
-                passwd = st.text_input("Senha", type="password", icon='🔐')
-                hashed = bcrypt.hashpw(
-                    passwd.encode("utf-8"), bcrypt.gensalt())
+                passwd = st.text_input("Senha", type="password", icon="🔐")
+                hashed = bcrypt.hashpw(passwd.encode("utf-8"), bcrypt.gensalt())
                 if st.form_submit_button("Solicitar Acesso"):
                     if name and email and passwd:
                         with Session() as session:
-                            stmt = select(User.email).where(
-                                User.email == email)
+                            stmt = select(User.email).where(User.email == email)
                             stmt_contract = select(Contract.id_contract).where(
                                 Contract.name == contract
                             )
@@ -221,7 +215,9 @@ if not st.session_state["logged_in"]:
                                 st.error("O utilizador já existe!")
 
                             st.success("Solicitação enviada. Aguarde libertação.")
-                            logger.info(f'Novo registro: {email} solicitou acesso ao contrato {contract}.')
+                            logger.info(
+                                f"Novo registro: {email} solicitou acesso ao contrato {contract}."
+                            )
                     else:
                         st.error("Preencha todos os campos.")
     st.stop()
@@ -268,13 +264,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-hora_atual = (datetime.now(timezone.utc) -
-              timedelta(hours=3)).strftime("%H:%M")
+hora_atual = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%H:%M")
 st.markdown(
     f"""<div class="sigma-header">
             <div class="sigma-title">
                 SigmaOPS
-                <span style="font-size: 15px; display: block; text-align: right;">&#x16B6; {version}</span>
+                <span style="font-size: 15px; display: block; text-align: right;"> 🧭 {version}</span>
             </div>
             <div style="text-align:center;">
                 <span class="sigma-label">Última Atualização</span>
@@ -301,8 +296,7 @@ with st.sidebar:
             with st.form("change_pass_form"):
                 current_pass = st.text_input("Senha Atual", type="password")
                 new_pass = st.text_input("Nova Senha", type="password")
-                confirm_pass = st.text_input(
-                    "Confirmar Nova Senha", type="password")
+                confirm_pass = st.text_input("Confirmar Nova Senha", type="password")
 
                 col1, col2 = st.columns(2)
 
@@ -320,8 +314,7 @@ with st.sidebar:
                         with Session() as session:
                             user_email = st.session_state.get("email")
                             stmt = select(User).where(User.email == user_email)
-                            CurrentUser = session.execute(
-                                stmt).scalar_one_or_none()
+                            CurrentUser = session.execute(stmt).scalar_one_or_none()
 
                             if CurrentUser:
                                 user_hash = CurrentUser.password
@@ -330,11 +323,9 @@ with st.sidebar:
                                     user_hash.encode("utf-8"),
                                 ):
                                     new_hashed = bcrypt.hashpw(
-                                        new_pass.encode(
-                                            "utf-8"), bcrypt.gensalt()
+                                        new_pass.encode("utf-8"), bcrypt.gensalt()
                                     )
-                                    CurrentUser.password = new_hashed.decode(
-                                        "utf-8")
+                                    CurrentUser.password = new_hashed.decode("utf-8")
                                     session.commit()
                                     st.success(
                                         "Senha atualizada com sucesso!", icon="✅"
@@ -362,8 +353,7 @@ with st.sidebar:
                 for user in users_pendent_approves:
                     row = user.get("User", {})
                     with st.container(border=True):
-                        st.markdown(
-                            f"**{row.name}** | {row.contract_rel.name}")
+                        st.markdown(f"**{row.name}** | {row.contract_rel.name}")
                         r_sel = st.selectbox(
                             "Perfil:",
                             ["user", "admin"],
@@ -462,8 +452,7 @@ def carregar_dados_api():
 
     if "equipamentos" in df_api.columns:
         df_api["Cabo/Primária"] = df_api["equipamentos"].apply(
-            lambda x: str(x[0]).strip() if isinstance(
-                x, list) and len(x) > 0 else "-"
+            lambda x: str(x[0]).strip() if isinstance(x, list) and len(x) > 0 else "-"
         )
     else:
         df_api["Cabo/Primária"] = "-"
@@ -477,8 +466,7 @@ def carregar_dados_api():
 
     if "Afetação" in df_api.columns:
         df_api["Afetação"] = (
-            pd.to_numeric(df_api["Afetação"],
-                          errors="coerce").fillna(0).astype(int)
+            pd.to_numeric(df_api["Afetação"], errors="coerce").fillna(0).astype(int)
         )
 
     def formatar_flag(val):
@@ -527,13 +515,15 @@ def carregar_dados_ofensores(contrato_ofensor):
         return None, str(e)
 
 
-def processar_json_ofensores(dados_json, at_sel: list[str] | None = None) -> pd.DataFrame:
+def processar_json_ofensores(
+    dados_json, at_sel: list[str] | None = None
+) -> pd.DataFrame:
     """Processa a estrutura JSON dos ofensores e retorna um DataFrame formatado."""
     linhas = []
 
     for item in dados_json:
-        if at_sel is not None and isinstance(at_sel, list) and at_sel != ['']:
-            if item.get('ocorrencias')[0].get('at') not in at_sel:
+        if at_sel is not None and isinstance(at_sel, list) and at_sel != [""]:
+            if item.get("ocorrencias")[0].get("at") not in at_sel:
                 continue
         cod_primaria = item.get("primaria", "")
         volume = item.get("count", 0)
@@ -577,15 +567,13 @@ def carregar_base_share():
                 else:
                     df = pd.read_csv(filepath, sep=";")
 
-                print(
-                    f"✅ Ficheiro {file} lido com sucesso. Linhas totais: {len(df)}")
+                print(f"✅ Ficheiro {file} lido com sucesso. Linhas totais: {len(df)}")
                 df.columns = df.columns.str.strip()
 
                 if "nom_AreaTelefonica" in df.columns and "qtd_Acessos" in df.columns:
                     print("⚙️ Colunas corretas encontradas. A processar matemática...")
                     df = df.dropna(
-                        subset=["num_MesAno",
-                                "nom_AreaTelefonica", "qtd_Acessos"]
+                        subset=["num_MesAno", "nom_AreaTelefonica", "qtd_Acessos"]
                     )
 
                     df["num_MesAno"] = (
@@ -605,12 +593,10 @@ def carregar_base_share():
                         .sum()
                         .to_dict()
                     )
-                    print(
-                        f"🚀 Sucesso! Dicionário criado com {len(dict_share)} ATs.")
+                    print(f"🚀 Sucesso! Dicionário criado com {len(dict_share)} ATs.")
                     return dict_share
                 else:
-                    print(
-                        f"❌ Aviso: O ficheiro {file} não tem as colunas corretas.")
+                    print(f"❌ Aviso: O ficheiro {file} não tem as colunas corretas.")
             except Exception as e:
                 print(f"❌ Erro ao ler {file}: {str(e)}")
                 continue
@@ -784,8 +770,7 @@ def gerar_cards_mpl(kpis, contrato):
             weight="black",
         )
 
-    ax.text(50, 96, "SIGMA OPS", ha="center",
-            size=32, weight="black", color="#7c3aed")
+    ax.text(50, 96, "SIGMA OPS", ha="center", size=32, weight="black", color="#7c3aed")
     ax.text(
         50,
         92,
@@ -806,8 +791,7 @@ def gerar_cards_mpl(kpis, contrato):
         draw(2, 16, 46, 18, "Litoral", kpis["lit"])
         draw(52, 16, 46, 18, "Vale", kpis["vale"])
     buf = io.BytesIO()
-    plt.savefig(buf, format="jpg", dpi=200,
-                bbox_inches="tight", facecolor=C_BG)
+    plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG)
     plt.close(fig)
     return buf.getvalue()
 
@@ -851,8 +835,7 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
         df_chunk = df_p.iloc[inicio:fim]
         idx_chunk = df_view.iloc[inicio:fim]
 
-        fig, ax = plt.subplots(
-            figsize=(17, max(4, 3 + len(df_chunk) * 0.8)), dpi=180)
+        fig, ax = plt.subplots(figsize=(17, max(4, 3 + len(df_chunk) * 0.8)), dpi=180)
         ax.axis("off")
         fig.patch.set_facecolor("white")
 
@@ -898,8 +881,7 @@ def gerar_lista_mpl_from_view(df_view, col_order, contrato):
                 tbl[(r_idx + 1, j)].set_edgecolor("#e2e8f0")
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="jpg", dpi=180,
-                    bbox_inches="tight", facecolor="white")
+        plt.savefig(buf, format="jpg", dpi=180, bbox_inches="tight", facecolor="white")
         plt.close(fig)
         lista_imagens.append(buf.getvalue())
     return lista_imagens
@@ -936,8 +918,7 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
 
     resumo.rename(columns={"Contrato_Padrao": "Contrato"}, inplace=True)
 
-    fig, ax = plt.subplots(
-        figsize=(16, max(4, 3 + len(resumo) * 0.8)), dpi=200)
+    fig, ax = plt.subplots(figsize=(16, max(4, 3 + len(resumo) * 0.8)), dpi=200)
     ax.axis("off")
     fig.patch.set_facecolor("white")
 
@@ -972,8 +953,7 @@ def gerar_dashboard_gerencial(df_geral, contratos_list):
                 cell.set_facecolor("#f8fafc")
 
     buf = io.BytesIO()
-    plt.savefig(buf, format="jpg", dpi=200,
-                bbox_inches="tight", facecolor="white")
+    plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return buf.getvalue()
 
@@ -1021,8 +1001,7 @@ if df_raw is not None:
         with c_f1:
             f_reg = st.multiselect("Região", df_view["Area"].unique())
         with c_f2:
-            f_sla = st.multiselect(
-                "SLA", ["Crítico", "Fora do Prazo", "No Prazo"])
+            f_sla = st.multiselect("SLA", ["Crítico", "Fora do Prazo", "No Prazo"])
 
         if f_reg:
             df_view = df_view[df_view["Area"].isin(f_reg)]
@@ -1067,8 +1046,7 @@ if df_raw is not None:
             )
             with st.expander("Ver Detalhes GV"):
                 for _, row in df_view[df_view["Afetação"] >= 100].iterrows():
-                    st.code(gerar_texto_gv(
-                        row, contrato_atual), language="text")
+                    st.code(gerar_texto_gv(row, contrato_atual), language="text")
 
         with st.expander("📂 Opções de Exportação"):
             c1, c2 = st.columns(2)
@@ -1098,8 +1076,7 @@ if df_raw is not None:
                 "Técnicos",
             ]
             try:
-                imgs = gerar_lista_mpl_from_view(
-                    df_view, cols_export, contrato_atual)
+                imgs = gerar_lista_mpl_from_view(df_view, cols_export, contrato_atual)
                 if imgs:
                     if len(imgs) == 1:
                         c2.download_button(
@@ -1347,22 +1324,19 @@ if df_raw is not None:
                     df_cl.groupby("Contrato_Padrao")
                     .agg(
                         Total=("Ocorrência", "count"),
-                        No_Prazo=("Status SLA", lambda x: (
-                            x == "No Prazo").sum()),
+                        No_Prazo=("Status SLA", lambda x: (x == "No Prazo").sum()),
                         Fora_Prazo=(
                             "Status SLA",
                             lambda x: (x == "Fora do Prazo").sum(),
                         ),
-                        Grandes_Vultos=(
-                            "Afetação", lambda x: (x >= 100).sum()),
+                        Grandes_Vultos=("Afetação", lambda x: (x >= 100).sum()),
                         VIPs=("VIP", lambda x: (x == "SIM").sum()),
                         Cond_Alto_Valor=(
                             "Cond. Alto Valor",
                             lambda x: (x == "SIM").sum(),
                         ),
                         B2B=("B2B", lambda x: (x == "SIM").sum()),
-                        Criticos=("Status SLA", lambda x: (
-                            x == "Crítico").sum()),
+                        Criticos=("Status SLA", lambda x: (x == "Crítico").sum()),
                     )
                     .rename(
                         columns={
@@ -1391,18 +1365,16 @@ if df_raw is not None:
 
         # 1. Lógica de renderização visual (Exclusiva para master/admin)
         if st.session_state.role in ["master", "admin"]:
-            c_f1, c_f2 = st.columns(
-                [5, 1], gap="xxsmall", vertical_alignment="bottom")
+            c_f1, c_f2 = st.columns([5, 1], gap="xxsmall", vertical_alignment="bottom")
 
             with c_f1:
-                st.session_state.at_sel = [at.strip().upper() for at in
-                    st.text_input(
+                st.session_state.at_sel = [
+                    at.strip().upper()
+                    for at in st.text_input(
                         "Filtrar por AT (Digite a sigla, ex: SJ, TT):",
                         placeholder="Deixe em branco para ver todas as ATs...",
-                        # disabled=True,
                         icon="🔍",
-                    )
-                    .split(',')
+                    ).split(",")
                 ]
 
             with c_f2:
@@ -1451,7 +1423,7 @@ if df_raw is not None:
                         <div style='background-color: #fee2e2; border-left: 5px solid #dc2626; padding: 15px; border-radius: 8px; margin-bottom: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
                             <h4 style='color: #991b1b; margin: 0; font-weight: 800;'>🚨 ALERTA DE OFENSOR CRÍTICO</h4>
                             <p style='color: #7f1d1d; margin: 5px 0 0 0; font-size: 15px;'>
-                                A primária <b>{top_1["Primária"]}</b> possui <b>{top_1["Volume (Falhas)"]} ocorrências repetidas.</b>.
+                                A primária <b>{top_1["Primária"]}</b> possui <b>{top_1["Volume (Falhas)"]} ocorrências repetidas nos últimos 30 dias.</b>
                             </p>
                         </div>
                         """,
@@ -1476,8 +1448,7 @@ if df_raw is not None:
                         "Nenhuma primária ofensora encontrada para a AT selecionada."
                     )
             else:
-                st.info(
-                    "🎉 Excelente! Nenhuma primária ofensora detetada no momento.")
+                st.info("🎉 Excelente! Nenhuma primária ofensora detetada no momento.")
         else:
             st.error(f"Falha ao comunicar com a API de Ofensores: {erro_of}")
             logger.error(f"Erro na API de Ofensores: {erro_of}")
