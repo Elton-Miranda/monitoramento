@@ -2,7 +2,11 @@
 .streamlit/secrets.toml
 .env
 
+# Cache do RUFF
+.ruff_cache/
+
 # Diretórios e arquivos temporários
+logs/
 .venv/
 __pycache__/
 *.log
