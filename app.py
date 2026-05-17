@@ -976,7 +976,9 @@ if df_raw is not None:
         tab_cl = None
 
     # --- ABA OPERACIONAL ---
-    # st.toast('Aba **Ofensores** está :violet[operacional!]', icon="🚨")
+    if st.session_state.get("visualizacao") is None:
+        st.toast('Aba **Ofensores** está :violet[operacional!]', icon="🚨")
+        st.session_state.visualizacao = True
     with tab_op:
         c_sel, c_ref = st.columns([5, 1], gap="small")
         with c_sel:
