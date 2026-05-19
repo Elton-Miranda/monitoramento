@@ -530,6 +530,7 @@ def processar_json_ofensores(
         linhas.append(
             {
                 "Primária": cod_primaria,
+                "Município": item.get('ocorrencias')[0].get('municipio', ''),
                 "Volume (Falhas)": volume,
                 "Ocorrências": ", ".join(
                     [
@@ -1437,12 +1438,11 @@ if df_raw is not None:
                         df_rank[
                             [
                                 "Primária",
+                                "Município",
                                 "Volume (Falhas)",
                                 "Ocorrências",
                             ]
                         ],
-                        # TODO: modificar o estilo das linhas
-                        # width='stretch',
                         hide_index=True,
                     )
                 else:
