@@ -1,6 +1,6 @@
 import bcrypt
 from datetime import datetime
-from sqlalchemy import ForeignKey, create_engine, func, event, Engine
+from sqlalchemy import ForeignKey, Text, create_engine, func, event, Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -50,6 +50,23 @@ class User(Base):
     role: Mapped[str] = mapped_column(nullable=False, default="user")
 
     contract_rel: Mapped["Contract"] = relationship(back_populates="users")
+
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+    id_feedback: Mapped[int] = mapped_column(primary_key=True)
+    tipo: Mapped[str] = mapped_column(nullable=False)
+    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    contato: Mapped[str] = mapped_column(nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Log(Base):
+    __tablename__ = "logs"
+    id_log: Mapped[int] = mapped_column(primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(server_default=func.now())
+    level: Mapped[str] = mapped_column(nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 if __name__ == "__main__":
