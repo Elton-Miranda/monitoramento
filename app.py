@@ -20,7 +20,7 @@ from feedback import salvar_feedback
 from log import salvar_log_no_sqlite
 
 # Versão do SigmaOPS
-version = "1.3.4"
+version = "1.3.5"
 
 @st.cache_resource
 def init_logger():
@@ -29,7 +29,6 @@ def init_logger():
     logger.add(salvar_log_no_sqlite, level="INFO")
 
 init_logger()
-
 
 # ==============================================================================
 # 🌍 1. CONFIGURAÇÃO DE AMBIENTE
@@ -66,19 +65,16 @@ if "contrato_ofensor" not in st.session_state:
 # 🔐 SEGURANÇA E BANCO DE DADOS
 # ==============================================================================
 
-
 def get_secret(section, key):
     try:
         return st.secrets[section][key]
     except:
         return None
 
-
 API_URL = get_secret("api", "url") or ""
 API_URL_OFENSORES = get_secret("api", "url_ofensores") or ""
 API_HEADERS = (
-    dict(st.secrets["api"].get("headers", {})
-         ) if get_secret("api", "headers") else {}
+    dict(st.secrets["api"].get("headers", {})) if get_secret("api", "headers") else {}
 )
 
 # ==============================================================================
@@ -87,11 +83,9 @@ API_HEADERS = (
 
 cookie_controller = CookieController()
 
-
 def obter_validade() -> datetime:
     """Retorna o tempo de expiração para o cookie."""
     return datetime.now() + timedelta(minutes=30)
-
 
 def logout():
     try:
@@ -102,7 +96,6 @@ def logout():
     st.session_state.clear()
     time.sleep(2)
     st.rerun()
-
 
 def confirm_login(
     user_name: str, email: str, role: str, contract: str | list[str]
@@ -134,10 +127,8 @@ def confirm_login(
     logger.info(f'Login bem-sucedido: {email} | Contrato: {contract} | Perfil: {role}')
     st.rerun()
 
-
 def atualizar_contrato_callback():
     st.session_state.contract = st.session_state.contrato_ofensor
-
 
 cookie_session = cookie_controller.get("session_token")
 
@@ -149,15 +140,13 @@ if cookie_session:
             user = conn.execute(stmt).scalar_one_or_none()
             if user:
                 st.session_state.logged_in = True
-                confirm_login(user.name, user.email, user.role,
-                              user.contract_rel.name)
+                confirm_login(user.name, user.email, user.role, user.contract_rel.name)
 
     # RENOVAÇÃO AUTOMÁTICA: O usuário agiu na página, gera um novo tempo
     nova_validade = obter_validade()
 
     # Sobrescreve o cookie atualizando a validade para mais 30 minutos
-    cookie_controller.set("session_token", cookie_session,
-                          expires=nova_validade)
+    cookie_controller.set("session_token", cookie_session, expires=nova_validade)
     logger.debug("cookie atualizado")
 else:
     logger.debug("cookie é nulo")
@@ -196,8 +185,7 @@ if "logged_in" not in st.session_state:
                     if email and passwd:
                         with Session() as session:
                             stmt = select(User).where(User.email == email)
-                            user_ref = session.execute(
-                                stmt).scalar_one_or_none()
+                            user_ref = session.execute(stmt).scalar_one_or_none()
                             if user_ref is None:
                                 st.error("Utilizador não encontrado!")
                                 logger.error(f"Falha de login: email {email} não encontrado.")
@@ -208,8 +196,7 @@ if "logged_in" not in st.session_state:
                                     )
                                     logger.warning(f"Login pendente: {email} ainda não aprovado.")
                                 else:
-                                    senha_hash = user_ref.password.encode(
-                                        "utf-8")
+                                    senha_hash = user_ref.password.encode("utf-8")
                                     if bcrypt.checkpw(
                                         passwd.encode("utf-8"), senha_hash
                                     ):
@@ -231,13 +218,11 @@ if "logged_in" not in st.session_state:
                 email = st.text_input("Email", icon="📧").strip()
                 contract = st.selectbox("Área", CONTRATOS_VALIDOS)
                 passwd = st.text_input("Senha", type="password", icon="🔐")
-                hashed = bcrypt.hashpw(
-                    passwd.encode("utf-8"), bcrypt.gensalt())
+                hashed = bcrypt.hashpw(passwd.encode("utf-8"), bcrypt.gensalt())
                 if st.form_submit_button("Solicitar Acesso"):
                     if name and email and passwd:
                         with Session() as session:
-                            stmt = select(User.email).where(
-                                User.email == email)
+                            stmt = select(User.email).where(User.email == email)
                             stmt_contract = select(Contract.id_contract).where(
                                 Contract.name == contract
                             )
@@ -257,13 +242,11 @@ if "logged_in" not in st.session_state:
                                 st.error("O utilizador já existe!")
                                 logger.error(f"Falha no registro: email {email} já existe.")
 
-                            st.success(
-                                "Solicitação enviada. Aguarde libertação.")
+                            st.success("Solicitação enviada. Aguarde libertação.")
                             logger.info(f"Novo registro: {email} solicitou acesso ao contrato {contract}.")
                     else:
                         st.error("Preencha todos os campos.")
     st.stop()
-
 
 else:
     # ==============================================================================
@@ -308,8 +291,7 @@ else:
         unsafe_allow_html=True,
     )
 
-    hora_atual = (datetime.now(timezone.utc) -
-                  timedelta(hours=3)).strftime("%H:%M")
+    hora_atual = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%H:%M")
     st.markdown(
         f"""<div class="sigma-header">
                 <div class="sigma-title">
@@ -339,12 +321,9 @@ else:
         if st.session_state.mostrar_form_senha:
             with placeholder.container():
                 with st.form("change_pass_form"):
-                    current_pass = st.text_input(
-                        "Senha Atual", type="password")
+                    current_pass = st.text_input("Senha Atual", type="password")
                     new_pass = st.text_input("Nova Senha", type="password")
-                    confirm_pass = st.text_input(
-                        "Confirmar Nova Senha", type="password"
-                    )
+                    confirm_pass = st.text_input("Confirmar Nova Senha", type="password")
 
                     col1, col2 = st.columns(2)
 
@@ -361,10 +340,8 @@ else:
                         else:
                             with Session() as session:
                                 user_email = st.session_state.get("email")
-                                stmt = select(User).where(
-                                    User.email == user_email)
-                                CurrentUser = session.execute(
-                                    stmt).scalar_one_or_none()
+                                stmt = select(User).where(User.email == user_email)
+                                CurrentUser = session.execute(stmt).scalar_one_or_none()
 
                                 if CurrentUser:
                                     user_hash = CurrentUser.password
@@ -373,25 +350,20 @@ else:
                                         user_hash.encode("utf-8"),
                                     ):
                                         new_hashed = bcrypt.hashpw(
-                                            new_pass.encode(
-                                                "utf-8"), bcrypt.gensalt()
+                                            new_pass.encode("utf-8"), bcrypt.gensalt()
                                         )
-                                        CurrentUser.password = new_hashed.decode(
-                                            "utf-8"
-                                        )
+                                        CurrentUser.password = new_hashed.decode("utf-8")
                                         session.commit()
-                                        st.success(
-                                            "Senha atualizada com sucesso!", icon="✅"
-                                        )
+                                        st.success("Senha atualizada com sucesso!", icon="✅")
                                         logger.info(f"Senha atualizada para o usuário {user_email}.")
                                         time.sleep(2)
                                         st.session_state.mostrar_form_senha = False
                                         placeholder.empty()
                                     else:
                                         st.error("Senha atual incorreta.")
-                        if btn_cancelar:
-                            st.session_state.mostrar_form_senha = False
-                            placeholder.empty()
+                    if btn_cancelar:
+                        st.session_state.mostrar_form_senha = False
+                        placeholder.empty()
 
         if CONTRATO:
             st.markdown(f"📍 **{CONTRATO}**")
@@ -407,8 +379,7 @@ else:
                     for user in users_pendent_approves:
                         row = user.get("User", {})
                         with st.container(border=True):
-                            st.markdown(
-                                f"**{row.name}** | {row.contract_rel.name}")
+                            st.markdown(f"**{row.name}** | {row.contract_rel.name}")
                             r_sel = st.selectbox(
                                 "Perfil:",
                                 ["user", "admin"],
@@ -453,8 +424,7 @@ else:
 
         if API_URL:
             try:
-                response = requests.get(
-                    API_URL, headers=API_HEADERS, timeout=25)
+                response = requests.get(API_URL, headers=API_HEADERS, timeout=25)
                 if response.status_code == 200:
                     data = response.json()
                     if "ocorrencias" in data:
@@ -494,7 +464,6 @@ else:
         df_api.rename(columns=rename_map, inplace=True)
 
         if "Reincidência" in df_api.columns:
-
             def format_reinc(x):
                 try:
                     if pd.isna(x) or str(x).strip() in ["", "nan", "None"]:
@@ -502,7 +471,6 @@ else:
                     return str(int(float(x)))
                 except:
                     return ""
-
             df_api["Reincidência"] = df_api["Reincidência"].apply(format_reinc)
         else:
             df_api["Reincidência"] = ""
@@ -510,15 +478,13 @@ else:
         if "equipamentos" in df_api.columns:
             df_api["Cabo/Primária"] = df_api["equipamentos"].apply(
                 lambda x: (
-                    str(x[0]).strip() if isinstance(
-                        x, list) and len(x) > 0 else "-"
+                    str(x[0]).strip() if isinstance(x, list) and len(x) > 0 else "-"
                 )
             )
         else:
             df_api["Cabo/Primária"] = "-"
 
-        df_api["Abertura_dt"] = pd.to_datetime(
-            df_api["Abertura"], errors="coerce")
+        df_api["Abertura_dt"] = pd.to_datetime(df_api["Abertura"], errors="coerce")
 
         if "Técnicos" in df_api.columns:
             df_api["Técnicos"] = df_api["Técnicos"].apply(
@@ -527,8 +493,7 @@ else:
 
         if "Afetação" in df_api.columns:
             df_api["Afetação"] = (
-                pd.to_numeric(df_api["Afetação"],
-                              errors="coerce").fillna(0).astype(int)
+                pd.to_numeric(df_api["Afetação"], errors="coerce").fillna(0).astype(int)
             )
 
         def formatar_flag(val):
@@ -559,10 +524,7 @@ else:
         try:
             response = requests.get(
                 API_URL_OFENSORES,
-                params={
-                    "contrato": contrato_ofensor,
-                    "range": 30,
-                },
+                params={"contrato": contrato_ofensor, "range": 30},
                 headers=API_HEADERS,
                 timeout=25,
             )
@@ -629,51 +591,36 @@ else:
                     else:
                         df = pd.read_csv(filepath, sep=";")
 
-                    print(
-                        f"✅ Ficheiro {file} lido com sucesso. Linhas totais: {len(df)}"
-                    )
+                    print(f"✅ Ficheiro {file} lido com sucesso. Linhas totais: {len(df)}")
                     df.columns = df.columns.str.strip()
 
-                    if (
-                        "nom_AreaTelefonica" in df.columns
-                        and "qtd_Acessos" in df.columns
-                    ):
-                        print(
-                            "⚙️ Colunas corretas encontradas. A processar matemática..."
-                        )
+                    if "nom_AreaTelefonica" in df.columns and "qtd_Acessos" in df.columns:
+                        print("⚙️ Colunas corretas encontradas. A processar matemática...")
                         df = df.dropna(
-                            subset=["num_MesAno",
-                                    "nom_AreaTelefonica", "qtd_Acessos"]
+                            subset=["num_MesAno", "nom_AreaTelefonica", "qtd_Acessos"]
                         )
 
                         df["num_MesAno"] = (
-                            df["num_MesAno"].astype(
-                                float).astype(int).astype(str)
+                            df["num_MesAno"].astype(float).astype(int).astype(str)
                         )
                         df["year"] = df["num_MesAno"].str[-4:].astype(int)
                         df["month"] = df["num_MesAno"].str[:-4].astype(int)
                         df["date"] = pd.to_datetime(
-                            {"year": df["year"],
-                                "month": df["month"], "day": 1}
+                            {"year": df["year"], "month": df["month"], "day": 1}
                         )
 
                         latest_date = df["date"].max()
                         df_latest = df[df["date"] == latest_date]
 
                         dict_share = (
-                            df_latest.groupby("nom_AreaTelefonica")[
-                                "qtd_Acessos"]
+                            df_latest.groupby("nom_AreaTelefonica")["qtd_Acessos"]
                             .sum()
                             .to_dict()
                         )
-                        print(
-                            f"🚀 Sucesso! Dicionário criado com {len(dict_share)} ATs."
-                        )
+                        print(f"🚀 Sucesso! Dicionário criado com {len(dict_share)} ATs.")
                         return dict_share
                     else:
-                        print(
-                            f"❌ Aviso: O ficheiro {file} não tem as colunas corretas."
-                        )
+                        print(f"❌ Aviso: O ficheiro {file} não tem as colunas corretas.")
                 except Exception as e:
                     print(f"❌ Erro ao ler {file}: {str(e)}")
                     continue
@@ -686,21 +633,18 @@ else:
 
         df = df_raw.copy()
 
-        df["Contrato_Padrao"] = df["Contrato"].astype(
-            str).str.strip().str.upper()
+        df["Contrato_Padrao"] = df["Contrato"].astype(str).str.strip().str.upper()
         if isinstance(filtros_contrato, str):
             df = df[df["Contrato_Padrao"] == filtros_contrato.upper()].copy()
         elif isinstance(filtros_contrato, list) and filtros_contrato:
             df = df[
-                df["Contrato_Padrao"].isin([c.upper()
-                                           for c in filtros_contrato])
+                df["Contrato_Padrao"].isin([c.upper() for c in filtros_contrato])
             ].copy()
 
         df["Abertura_dt"] = pd.to_datetime(
             df["Abertura"], errors="coerce"
         ).dt.tz_localize(None)
-        df["diff_s"] = (agora - df["Abertura_dt"]
-                        ).dt.total_seconds().clip(lower=0)
+        df["diff_s"] = (agora - df["Abertura_dt"]).dt.total_seconds().clip(lower=0)
         df["horas_float"] = df["diff_s"] / 3600
 
         def formatar_hms(s):
@@ -724,43 +668,34 @@ else:
 
         df["Status SLA"] = df.apply(calc_sla_status, axis=1)
 
+        # --- NOVA REGRA DE ANTECIPAÇÃO E COBRANÇA DA EPS ---
+        def calc_criticidade_eps(row):
+            h = row["horas_float"]
+            if h >= 7:
+                return "🚨 E-MAIL(EPS)"
+            elif h >= 6:
+                return "🟠 GERÊNCIA(EPS)"
+            elif h >= 4:
+                return "🟡 COORDENADOR (EPS)"
+            else:
+                return "🟢 SUPERVISOR (EPS)"
+
+        df["Criticidade EPS"] = df.apply(calc_criticidade_eps, axis=1)
+
         def def_area(row):
             if str(row["Contrato_Padrao"]) == "ABILITY_SJ" and pd.notna(row.get("AT")):
                 return (
                     "Litoral"
                     if str(row["AT"]).split("-")[0].strip().upper()
                     in [
-                        "TG",
-                        "PG",
-                        "LZ",
-                        "MK",
-                        "MG",
-                        "PN",
-                        "AA",
-                        "BV",
-                        "FM",
-                        "RP",
-                        "AC",
-                        "FP",
-                        "BA",
-                        "TQ",
-                        "BO",
-                        "BU",
-                        "BC",
-                        "PJ",
-                        "PB",
-                        "MR",
-                        "MA",
+                        "TG", "PG", "LZ", "MK", "MG", "PN", "AA", "BV", "FM", "RP",
+                        "AC", "FP", "BA", "TQ", "BO", "BU", "BC", "PJ", "PB", "MR", "MA",
                     ]
                     else "Vale"
                 )
             return "Geral"
 
         df["Area"] = df.apply(def_area, axis=1)
-
-        # dict_status = carregar_status_campo()
-        # df['Último Status'] = df['Ocorrência'].astype(str).map(
-        #     dict_status).fillna("A aguardar atualização")
 
         return df.sort_values("horas_float", ascending=False)
 
@@ -872,8 +807,7 @@ else:
             draw(2, 16, 46, 18, "Litoral", kpis["lit"])
             draw(52, 16, 46, 18, "Vale", kpis["vale"])
         buf = io.BytesIO()
-        plt.savefig(buf, format="jpg", dpi=200,
-                    bbox_inches="tight", facecolor=C_BG)
+        plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor=C_BG)
         plt.close(fig)
         return buf.getvalue()
 
@@ -884,7 +818,7 @@ else:
         cols = [
             c
             for c in col_order
-            if c in df_view.columns and c not in ["horas_float", "Status SLA"]
+            if c in df_view.columns and c not in ["horas_float", "Status SLA", "Criticidade EPS"]
         ]
 
         df_p = (
@@ -987,12 +921,10 @@ else:
             .agg(
                 Total=("Ocorrência", "count"),
                 No_Prazo=("Status SLA", lambda x: (x == "No Prazo").sum()),
-                Fora_Prazo=("Status SLA", lambda x: (
-                    x == "Fora do Prazo").sum()),
+                Fora_Prazo=("Status SLA", lambda x: (x == "Fora do Prazo").sum()),
                 Grandes_Vultos=("Afetação", lambda x: (x >= 100).sum()),
                 VIPs=("VIP", lambda x: (x == "SIM").sum()),
-                Cond_Alto_Valor=("Cond. Alto Valor",
-                                 lambda x: (x == "SIM").sum()),
+                Cond_Alto_Valor=("Cond. Alto Valor", lambda x: (x == "SIM").sum()),
                 B2B=("B2B", lambda x: (x == "SIM").sum()),
                 Criticos=("Status SLA", lambda x: (x == "Crítico").sum()),
             )
@@ -1011,8 +943,7 @@ else:
 
         resumo.rename(columns={"Contrato_Padrao": "Contrato"}, inplace=True)
 
-        fig, ax = plt.subplots(
-            figsize=(16, max(4, 3 + len(resumo) * 0.8)), dpi=200)
+        fig, ax = plt.subplots(figsize=(16, max(4, 3 + len(resumo) * 0.8)), dpi=200)
         ax.axis("off")
         fig.patch.set_facecolor("white")
 
@@ -1047,8 +978,7 @@ else:
                     cell.set_facecolor("#f8fafc")
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="jpg", dpi=200,
-                    bbox_inches="tight", facecolor="white")
+        plt.savefig(buf, format="jpg", dpi=200, bbox_inches="tight", facecolor="white")
         plt.close(fig)
         return buf.getvalue()
 
@@ -1099,7 +1029,8 @@ else:
                 f_reg = st.multiselect("Região", df_view["Area"].unique())
             with c_f2:
                 f_sla = st.multiselect(
-                    "SLA", ["Crítico", "Fora do Prazo", "No Prazo"])
+                    "SLA", ["Crítico", "Fora do Prazo", "No Prazo"]
+                )
 
             if f_reg:
                 df_view = df_view[df_view["Area"].isin(f_reg)]
@@ -1144,8 +1075,7 @@ else:
                 )
                 with st.expander("Ver Detalhes GV"):
                     for _, row in df_view[df_view["Afetação"] >= 100].iterrows():
-                        st.code(gerar_texto_gv(
-                            row, contrato_atual), language="text")
+                        st.code(gerar_texto_gv(row, contrato_atual), language="text")
 
             with st.expander("📂 Opções de Exportação"):
                 c1, c2 = st.columns(2)
@@ -1199,54 +1129,6 @@ else:
                 except:
                     pass
 
-            # --- PAINEL DE INSERÇÃO DE STATUS ---
-            # with st.expander("📝 Atualizar Status da Equipa de Campo", expanded=False):
-            #     with st.form("form_status_campo", clear_on_submit=True):
-
-            #         lista_ocs = df_view['Ocorrência'].astype(str).tolist()
-
-            #         if lista_ocs:
-            #             dict_format = {}
-            #             for _, row in df_view.iterrows():
-            #                 oc = str(row['Ocorrência'])
-            #                 cabo = str(row.get('Cabo/Primária', '-'))
-            #                 at_local = str(row.get('AT', '-'))
-
-            #                 afet = row.get('Afetação', 0)
-            #                 try: afet = int(afet)
-            #                 except: afet = 0
-            #                 gv_flag = " - GV" if afet >= 100 else ""
-
-            #                 dict_format[oc] = f"{oc} | {at_local} | {cabo}{gv_flag}"
-
-            #             c_st1, c_st2, c_st3 = st.columns([1.5, 1, 2])
-            #             sel_oc = c_st1.selectbox("Ocorrência", lista_ocs, format_func=lambda x: dict_format.get(x, x))
-            #             sel_st = c_st2.selectbox("Ação", ["Em deslocamento", "A percorrer Rota", "A lançar Cabo", "A preparar Fusão", "A aguardar Material", "Caixa de Emenda", "A aguardar Teste", "Outro"])
-            #             txt_obs = c_st3.text_input("Observação (Opcional)", placeholder="Ex. a lançar x metros de cabo, a aguardar chegada da equipa, etc.")
-
-            #             if PERFIL in ["master", "admin"]:
-            #                 c_btn1, c_btn2 = st.columns(2)
-            #                 btn_salvar = c_btn1.form_submit_button("💾 Guardar Histórico", width='stretch')
-            #                 btn_apagar = c_btn2.form_submit_button("🗑️ Apagar Histórico", width='stretch')
-            #             else:
-            #                 btn_salvar = st.form_submit_button("💾 Guardar Histórico", width='stretch')
-            #                 btn_apagar = False
-
-            #             if btn_salvar:
-            #                 salvar_status_campo(sel_oc, sel_st, txt_obs, USUARIO)
-            #                 st.success(f"Status da ocorrência {sel_oc} atualizado com sucesso!")
-            #                 time.sleep(1)
-            #                 st.rerun()
-
-            #             if btn_apagar:
-            #                 db.collection("status_campo").document(str(sel_oc)).delete()
-            #                 st.success(f"Histórico apagado! Status retornado para 'A aguardar atualização'.")
-            #                 time.sleep(1)
-            #                 st.rerun()
-            #         else:
-            #             st.info("Nenhuma ocorrência disponível na tela para atualizar.")
-            #             st.form_submit_button("💾 Guardar", disabled=True)
-
             # --- EXIBIÇÃO DA TABELA HTML CENTRALIZADA COM RESPONSIVIDADE ---
             c_tab1, c_tab2 = st.columns([4, 1])
             with c_tab2:
@@ -1263,7 +1145,8 @@ else:
                     "AT",
                     "Afetação",
                     "Reincidência",
-                    "Horas Corridas",  # 'Último Status'
+                    "Horas Corridas",
+                    "Criticidade EPS",
                     "Técnicos",
                 ]
                 cols_ocultar_html = ["horas_float", "B2B"]
@@ -1273,10 +1156,11 @@ else:
                     "Cabo/Primária",
                     "AT",
                     "Afetação",
+                    "Horas Corridas",
                     "Reincidência",
                     "Origem",
-                    "Horas Corridas",
-                    "Status SLA",  # 'Último Status',
+                    "Status SLA",
+                    "Criticidade EPS",
                     "VIP",
                     "Cond. Alto Valor",
                     "B2B",
@@ -1284,11 +1168,10 @@ else:
                 ]
                 cols_ocultar_html = ["horas_float"]
 
-            cols_logica = list(dict.fromkeys(
-                cols_visiveis + cols_ocultar_html))
+            cols_logica = list(dict.fromkeys(cols_visiveis + cols_ocultar_html))
             c_final = [c for c in cols_logica if c in df_view.columns]
 
-            df_tela = df_view[c_final]  # .drop(columns=['horas_float']).copy()
+            df_tela = df_view[c_final]
 
             dict_renomear = {
                 "Ocorrência": "ID",
@@ -1297,11 +1180,11 @@ else:
                 "Reincidência": "Reinc.",
                 "Horas Corridas": "Tempo",
                 "Status SLA": "SLA",
+                "Criticidade EPS": "Nível  Escalonamento",
                 "Cond. Alto Valor": "A.V",
                 "Técnicos": "Téc.",
             }
-            df_tela.rename(
-                columns=lambda x: dict_renomear.get(x, x), inplace=True)
+            df_tela.rename(columns=lambda x: dict_renomear.get(x, x), inplace=True)
 
             def highlight_rows_tela(row):
                 h = row.get("horas_float", 0)  # checkpoint
@@ -1320,11 +1203,20 @@ else:
                 styles = []
                 for col in row.index:
                     val = str(row[col]).upper().strip()
-                    cell_style = (
-                        f"color: {tc}; text-align: center !important; font-weight: 700;"
-                    )
+                    cell_style = f"color: {tc}; text-align: center !important; font-weight: 700;"
 
-                    if col == "VIP" and val == "SIM":
+                    # --- ESTILIZAÇÃO DO BADGE DE CRITICIDADE ---
+                    if col == "Criticidade":
+                        if "E-MAIL" in val:
+                            cell_style = "background-color: #fee2e2; color: #991b1b; font-weight: 900; border-radius: 4px;"
+                        elif "COORDENADOR" in val:
+                            cell_style = "background-color: #ffedd5; color: #c2410c; font-weight: 800; border-radius: 4px;"
+                        elif "SUPERVISOR" in val:
+                            cell_style = "background-color: #fef9c3; color: #a16207; font-weight: 800; border-radius: 4px;"
+                        else:
+                            cell_style = "background-color: #dcfce7; color: #15803d; font-weight: 700; border-radius: 4px;"
+
+                    elif col == "VIP" and val == "SIM":
                         cell_style += "background-color: #f5d0fe; color: #86198f;"
                     elif col == "A.V" and val == "SIM":
                         cell_style += "background-color: #d9f99d; color: #365314;"
@@ -1360,7 +1252,7 @@ else:
                         {
                             "selector": "td",
                             "props": [
-                                ("text-align", "center"),  # Adicionado aqui
+                                ("text-align", "center"),
                                 ("padding", "8px"),
                                 ("border-bottom", "1px solid #f8fafc"),
                                 ("font-size", "12px"),
@@ -1388,8 +1280,7 @@ else:
                     with c2:
                         st.write("")
                         st.write("")
-                        st.form_submit_button(
-                            "Atualizar Visão", width="stretch")
+                        st.form_submit_button("Atualizar Visão", width="stretch")
 
                 if sels:
                     df_cl = processar_dados(df_raw, sels)
@@ -1430,22 +1321,21 @@ else:
                         df_cl.groupby("Contrato_Padrao")
                         .agg(
                             Total=("Ocorrência", "count"),
-                            No_Prazo=("Status SLA", lambda x: (
-                                x == "No Prazo").sum()),
+                            No_Prazo=("Status SLA", lambda x: (x == "No Prazo").sum()),
                             Fora_Prazo=(
                                 "Status SLA",
                                 lambda x: (x == "Fora do Prazo").sum(),
                             ),
                             Grandes_Vultos=(
-                                "Afetação", lambda x: (x >= 100).sum()),
+                                "Afetação", lambda x: (x >= 100).sum()
+                            ),
                             VIPs=("VIP", lambda x: (x == "SIM").sum()),
                             Cond_Alto_Valor=(
                                 "Cond. Alto Valor",
                                 lambda x: (x == "SIM").sum(),
                             ),
                             B2B=("B2B", lambda x: (x == "SIM").sum()),
-                            Criticos=("Status SLA", lambda x: (
-                                x == "Crítico").sum()),
+                            Criticos=("Status SLA", lambda x: (x == "Crítico").sum()),
                         )
                         .rename(
                             columns={
@@ -1470,8 +1360,7 @@ else:
                 "<h3 style='color:#1e293b;'>🏆 Ranking de Primárias Ofensoras</h3>",
                 unsafe_allow_html=True,
             )
-            st.markdown(
-                "Monitorização de equipamentos em crise com base na API.")
+            st.markdown("Monitorização de equipamentos em crise com base na API.")
 
             # 1. Lógica de renderização visual (Exclusiva para master/admin)
             if st.session_state.role in ["master", "admin"]:
@@ -1496,14 +1385,11 @@ else:
                         carregar_dados_ofensores.clear()
                         st.rerun()
             else:
-                # Para usuários comuns, os componentes visuais acima simplesmente NÃO aparecem.
-                # Definimos a variável 'at_sel' vazia para evitar erros (NameError) no restante do código.
                 st.session_state.at_sel = None
                 st.session_state.contract = contrato_atual
 
             # carregamento de dados da api de ofensores, com cache para 5 minutos
-            dados_of, erro_of = carregar_dados_ofensores(
-                st.session_state.contract)
+            dados_of, erro_of = carregar_dados_ofensores(st.session_state.contract)
             logger.debug(
                 f'Dados de ofensores carregados para o contrato {st.session_state.contract}')
 
@@ -1578,88 +1464,6 @@ else:
         # --- ABA CRITICIDADE SHARE ---
         with tab_share:
             st.markdown("Em construção ... 🚧")
-        #     st.markdown(
-        #         "<h3 style='color:#1e293b;'>📉 Análise de Criticidade (Share da AT)</h3>", unsafe_allow_html=True)
-        #     st.markdown("Calcula a percentagem de clientes offline em relação ao tamanho total da central (AT). Permite descobrir quando uma ocorrência pequena em números absolutos é, na verdade, uma falha gravíssima e de grande impacto relativo para aquela localidade.")
-
-        #     dict_share = carregar_base_share()
-
-        #     if not dict_share:
-        #         st.warning(
-        #             "⚠️ Ficheiro de Share não encontrado. Coloque o ficheiro CSV extraído de Share na mesma pasta do sistema para ativar esta função.")
-        #     else:
-        #         c1, c2 = st.columns([1, 2])
-        #         with c1:
-        #             limite_critico = st.slider("🚨 Alerta de Crise a partir de (%)", min_value=1.0, max_value=20.0, value=3.0, step=0.5,
-        #                                        help="Pela regra de ouro: Perder mais de 3% de toda a central num único evento já configura um cenário crítico ou de Grande Vulto.")
-
-        #         df_share = df_view.copy()
-
-        #         df_share['AT_Clean'] = df_share['AT'].astype(
-        #             str).str.split('-').str[0].str.strip().str.upper()
-
-        #         df_share = df_share[(df_share['AT_Clean'] != '-')
-        #                             & (df_share['Afetação'] > 0)].copy()
-
-        #         if not df_share.empty:
-        #             df_share['Total_Clientes_AT'] = df_share['AT_Clean'].map(
-        #                 dict_share)
-        #             df_share = df_share.dropna(subset=['Total_Clientes_AT'])
-
-        #             if not df_share.empty:
-        #                 df_share['Total_Clientes_AT'] = df_share['Total_Clientes_AT'].astype(
-        #                     int)
-        #                 df_share['Risco_Pct'] = (
-        #                     df_share['Afetação'] / df_share['Total_Clientes_AT']) * 100
-
-        #                 df_share = df_share.sort_values(
-        #                     by='Risco_Pct', ascending=False)
-
-        #                 qtd_criticos = len(
-        #                     df_share[df_share['Risco_Pct'] >= limite_critico])
-        #                 pior_oc = df_share.iloc[0]
-
-        #                 c_k1, c_k2, c_k3 = st.columns(3)
-        #                 c_k1.markdown(
-        #                     f"<div class='alert-box' style='background:#fef2f2; border-color:#fecaca;'><div style='color:#991b1b; font-size:12px;'>Ocorrências em Crise (>{limite_critico}%)</div><div style='font-size:24px; font-weight:900;'>{qtd_criticos}</div></div>", unsafe_allow_html=True)
-
-        #                 cor_pior = '#dc2626' if pior_oc['Risco_Pct'] >= limite_critico else '#d97706'
-        #                 c_k2.markdown(
-        #                     f"<div class='alert-box' style='background:#fffbeb; border-color:#fde68a;'><div style='color:#92400e; font-size:12px;'>Maior Risco Atual (AT: {pior_oc['AT_Clean']})</div><div style='font-size:24px; font-weight:900; color:{cor_pior};'>{pior_oc['Risco_Pct']:.2f}% de toda a Central</div></div>", unsafe_allow_html=True)
-
-        #                 st.write("")
-        #                 st.markdown(
-        #                     "##### 📋 Ocorrências classificadas por Risco de Impacto")
-
-        #                 df_share['Risco (%)'] = df_share['Risco_Pct'].apply(
-        #                     lambda x: f"{x:.2f}%")
-
-        #                 cols_exibicao = ['Ocorrência', 'AT_Clean', 'Cabo/Primária',
-        #                                  'Afetação', 'Total_Clientes_AT', 'Risco (%)']
-        #                 df_style = df_share[cols_exibicao + ['Risco_Pct']].rename(
-        #                     columns={'AT_Clean': 'AT', 'Total_Clientes_AT': 'Tamanho da Central (Share)', 'Afetação': 'Clientes Fora'})
-
-        #                 def highlight_risco(row):
-        #                     risco = row.get('Risco_Pct', 0)
-        #                     if risco >= limite_critico:
-        #                         return ['background-color: #fee2e2; color: #991b1b; font-weight: 800;' for _ in row]
-        #                     elif risco >= limite_critico / 2:
-        #                         return ['background-color: #fffbeb; color: #92400e; font-weight: 600;' for _ in row]
-        #                     return ['' for _ in row]
-
-        #                 st.dataframe(
-        #                     df_style.style.apply(highlight_risco, axis=1).hide(
-        #                         subset=['Risco_Pct'], axis='columns'
-        #                     ),
-        #                     width='stretch',
-        #                     hide_index=True
-        #                 )
-        #             else:
-        #                 st.info(
-        #                     "Nenhuma das ATs com falha no momento foi encontrada no ficheiro de Share. Verifique as siglas das ATs.")
-        #         else:
-        #             st.info(
-        #                 "Não há ocorrências com afetação nas ATs no momento (Todas zeradas).")
 
         if tab_report:
             with tab_report:
