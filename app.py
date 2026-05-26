@@ -22,11 +22,13 @@ from log import salvar_log_no_sqlite
 # Versão do SigmaOPS
 version = "1.3.5"
 
+
 @st.cache_resource
 def init_logger():
     logger.remove()
     logger.add(sys.stderr, level="DEBUG")
     logger.add(salvar_log_no_sqlite, level="INFO")
+
 
 init_logger()
 
@@ -65,11 +67,13 @@ if "contrato_ofensor" not in st.session_state:
 # 🔐 SEGURANÇA E BANCO DE DADOS
 # ==============================================================================
 
+
 def get_secret(section, key):
     try:
         return st.secrets[section][key]
     except:
         return None
+
 
 API_URL = get_secret("api", "url") or ""
 API_URL_OFENSORES = get_secret("api", "url_ofensores") or ""
@@ -83,19 +87,22 @@ API_HEADERS = (
 
 cookie_controller = CookieController()
 
+
 def obter_validade() -> datetime:
     """Retorna o tempo de expiração para o cookie."""
     return datetime.now() + timedelta(minutes=30)
 
+
 def logout():
     try:
         cookie_controller.remove("session_token")
-        logger.info(f'Usuário deslogado: {st.session_state.get("email")}')
+        logger.info(f"Usuário deslogado: {st.session_state.get('email')}")
     except Exception:
         pass
     st.session_state.clear()
     time.sleep(2)
     st.rerun()
+
 
 def confirm_login(
     user_name: str, email: str, role: str, contract: str | list[str]
@@ -124,11 +131,13 @@ def confirm_login(
         email,
         expires=obter_validade(),
     )
-    logger.info(f'Login bem-sucedido: {email} | Contrato: {contract} | Perfil: {role}')
+    logger.info(f"Login bem-sucedido: {email} | Contrato: {contract} | Perfil: {role}")
     st.rerun()
+
 
 def atualizar_contrato_callback():
     st.session_state.contract = st.session_state.contrato_ofensor
+
 
 cookie_session = cookie_controller.get("session_token")
 
@@ -188,13 +197,17 @@ if "logged_in" not in st.session_state:
                             user_ref = session.execute(stmt).scalar_one_or_none()
                             if user_ref is None:
                                 st.error("Utilizador não encontrado!")
-                                logger.error(f"Falha de login: email {email} não encontrado.")
+                                logger.error(
+                                    f"Falha de login: email {email} não encontrado."
+                                )
                             else:
                                 if not user_ref.approved:
                                     st.warning(
                                         "O seu acesso ainda está pendente de aprovação."
                                     )
-                                    logger.warning(f"Login pendente: {email} ainda não aprovado.")
+                                    logger.warning(
+                                        f"Login pendente: {email} ainda não aprovado."
+                                    )
                                 else:
                                     senha_hash = user_ref.password.encode("utf-8")
                                     if bcrypt.checkpw(
@@ -208,7 +221,9 @@ if "logged_in" not in st.session_state:
                                         )
                                     else:
                                         st.error("Senha incorreta!")
-                                        logger.error(f"Falha de login: senha incorreta para o email {email}.")
+                                        logger.error(
+                                            f"Falha de login: senha incorreta para o email {email}."
+                                        )
                     else:
                         st.warning("Preencha todos os campos.")
         with t2:
@@ -240,10 +255,14 @@ if "logged_in" not in st.session_state:
                                 session.commit()
                             else:
                                 st.error("O utilizador já existe!")
-                                logger.error(f"Falha no registro: email {email} já existe.")
+                                logger.error(
+                                    f"Falha no registro: email {email} já existe."
+                                )
 
                             st.success("Solicitação enviada. Aguarde libertação.")
-                            logger.info(f"Novo registro: {email} solicitou acesso ao contrato {contract}.")
+                            logger.info(
+                                f"Novo registro: {email} solicitou acesso ao contrato {contract}."
+                            )
                     else:
                         st.error("Preencha todos os campos.")
     st.stop()
@@ -323,7 +342,9 @@ else:
                 with st.form("change_pass_form"):
                     current_pass = st.text_input("Senha Atual", type="password")
                     new_pass = st.text_input("Nova Senha", type="password")
-                    confirm_pass = st.text_input("Confirmar Nova Senha", type="password")
+                    confirm_pass = st.text_input(
+                        "Confirmar Nova Senha", type="password"
+                    )
 
                     col1, col2 = st.columns(2)
 
@@ -352,10 +373,16 @@ else:
                                         new_hashed = bcrypt.hashpw(
                                             new_pass.encode("utf-8"), bcrypt.gensalt()
                                         )
-                                        CurrentUser.password = new_hashed.decode("utf-8")
+                                        CurrentUser.password = new_hashed.decode(
+                                            "utf-8"
+                                        )
                                         session.commit()
-                                        st.success("Senha atualizada com sucesso!", icon="✅")
-                                        logger.info(f"Senha atualizada para o usuário {user_email}.")
+                                        st.success(
+                                            "Senha atualizada com sucesso!", icon="✅"
+                                        )
+                                        logger.info(
+                                            f"Senha atualizada para o usuário {user_email}."
+                                        )
                                         time.sleep(2)
                                         st.session_state.mostrar_form_senha = False
                                         placeholder.empty()
@@ -464,6 +491,7 @@ else:
         df_api.rename(columns=rename_map, inplace=True)
 
         if "Reincidência" in df_api.columns:
+
             def format_reinc(x):
                 try:
                     if pd.isna(x) or str(x).strip() in ["", "nan", "None"]:
@@ -471,6 +499,7 @@ else:
                     return str(int(float(x)))
                 except:
                     return ""
+
             df_api["Reincidência"] = df_api["Reincidência"].apply(format_reinc)
         else:
             df_api["Reincidência"] = ""
@@ -517,14 +546,14 @@ else:
         return df_api, None
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def carregar_dados_ofensores(contrato_ofensor):
+    def carregar_dados_ofensores(contrato_ofensor, range=30):
         """Carrega a lista de ofensores da API, com cache de 5 minutos."""
         if not API_URL_OFENSORES:
             return None, "URL de Ofensores não configurada no secrets.toml."
         try:
             response = requests.get(
                 API_URL_OFENSORES,
-                params={"contrato": contrato_ofensor, "range": 30},
+                params={"contrato": contrato_ofensor, "range": range},
                 headers=API_HEADERS,
                 timeout=25,
             )
@@ -591,11 +620,18 @@ else:
                     else:
                         df = pd.read_csv(filepath, sep=";")
 
-                    print(f"✅ Ficheiro {file} lido com sucesso. Linhas totais: {len(df)}")
+                    print(
+                        f"✅ Ficheiro {file} lido com sucesso. Linhas totais: {len(df)}"
+                    )
                     df.columns = df.columns.str.strip()
 
-                    if "nom_AreaTelefonica" in df.columns and "qtd_Acessos" in df.columns:
-                        print("⚙️ Colunas corretas encontradas. A processar matemática...")
+                    if (
+                        "nom_AreaTelefonica" in df.columns
+                        and "qtd_Acessos" in df.columns
+                    ):
+                        print(
+                            "⚙️ Colunas corretas encontradas. A processar matemática..."
+                        )
                         df = df.dropna(
                             subset=["num_MesAno", "nom_AreaTelefonica", "qtd_Acessos"]
                         )
@@ -617,10 +653,14 @@ else:
                             .sum()
                             .to_dict()
                         )
-                        print(f"🚀 Sucesso! Dicionário criado com {len(dict_share)} ATs.")
+                        print(
+                            f"🚀 Sucesso! Dicionário criado com {len(dict_share)} ATs."
+                        )
                         return dict_share
                     else:
-                        print(f"❌ Aviso: O ficheiro {file} não tem as colunas corretas.")
+                        print(
+                            f"❌ Aviso: O ficheiro {file} não tem as colunas corretas."
+                        )
                 except Exception as e:
                     print(f"❌ Erro ao ler {file}: {str(e)}")
                     continue
@@ -688,8 +728,27 @@ else:
                     "Litoral"
                     if str(row["AT"]).split("-")[0].strip().upper()
                     in [
-                        "TG", "PG", "LZ", "MK", "MG", "PN", "AA", "BV", "FM", "RP",
-                        "AC", "FP", "BA", "TQ", "BO", "BU", "BC", "PJ", "PB", "MR", "MA",
+                        "TG",
+                        "PG",
+                        "LZ",
+                        "MK",
+                        "MG",
+                        "PN",
+                        "AA",
+                        "BV",
+                        "FM",
+                        "RP",
+                        "AC",
+                        "FP",
+                        "BA",
+                        "TQ",
+                        "BO",
+                        "BU",
+                        "BC",
+                        "PJ",
+                        "PB",
+                        "MR",
+                        "MA",
                     ]
                     else "Vale"
                 )
@@ -818,7 +877,8 @@ else:
         cols = [
             c
             for c in col_order
-            if c in df_view.columns and c not in ["horas_float", "Status SLA", "Criticidade EPS"]
+            if c in df_view.columns
+            and c not in ["horas_float", "Status SLA", "Criticidade EPS"]
         ]
 
         df_p = (
@@ -1028,9 +1088,7 @@ else:
             with c_f1:
                 f_reg = st.multiselect("Região", df_view["Area"].unique())
             with c_f2:
-                f_sla = st.multiselect(
-                    "SLA", ["Crítico", "Fora do Prazo", "No Prazo"]
-                )
+                f_sla = st.multiselect("SLA", ["Crítico", "Fora do Prazo", "No Prazo"])
 
             if f_reg:
                 df_view = df_view[df_view["Area"].isin(f_reg)]
@@ -1203,7 +1261,9 @@ else:
                 styles = []
                 for col in row.index:
                     val = str(row[col]).upper().strip()
-                    cell_style = f"color: {tc}; text-align: center !important; font-weight: 700;"
+                    cell_style = (
+                        f"color: {tc}; text-align: center !important; font-weight: 700;"
+                    )
 
                     # --- ESTILIZAÇÃO DO BADGE DE CRITICIDADE ---
                     if col == "Criticidade":
@@ -1326,9 +1386,7 @@ else:
                                 "Status SLA",
                                 lambda x: (x == "Fora do Prazo").sum(),
                             ),
-                            Grandes_Vultos=(
-                                "Afetação", lambda x: (x >= 100).sum()
-                            ),
+                            Grandes_Vultos=("Afetação", lambda x: (x >= 100).sum()),
                             VIPs=("VIP", lambda x: (x == "SIM").sum()),
                             Cond_Alto_Valor=(
                                 "Cond. Alto Valor",
@@ -1387,16 +1445,21 @@ else:
             else:
                 st.session_state.at_sel = None
                 st.session_state.contract = contrato_atual
+            range_dias = st.slider(
+                '**Selecione o Range**', min_value=5, max_value=90, value=30, step=5,
+                help='Selecione o range de dias para ver as primárias afetadas',
+            )
+            
 
             # carregamento de dados da api de ofensores, com cache para 5 minutos
-            dados_of, erro_of = carregar_dados_ofensores(st.session_state.contract)
+            dados_of, erro_of = carregar_dados_ofensores(st.session_state.contract, range_dias)
             logger.debug(
-                f'Dados de ofensores carregados para o contrato {st.session_state.contract}')
+                f"Dados de ofensores carregados para o contrato {st.session_state.contract}"
+            )
 
             if dados_of is not None:
                 # processamento dos dados para ranking
-                df_rank = processar_json_ofensores(
-                    dados_of, st.session_state.at_sel)
+                df_rank = processar_json_ofensores(dados_of, st.session_state.at_sel)
 
                 if not df_rank.empty:
                     if not df_rank.empty:
@@ -1429,7 +1492,7 @@ else:
                             <div style='background-color: #fee2e2; border-left: 5px solid #dc2626; padding: 15px; border-radius: 8px; margin-bottom: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
                                 <h4 style='color: #991b1b; margin: 0; font-weight: 800;'>🚨 ALERTA DE OFENSOR CRÍTICO</h4>
                                 <p style='color: #7f1d1d; margin: 5px 0 0 0; font-size: 15px;'>
-                                    A primária <b>{top_1["Primária"]}</b> possui <b>{top_1["Volume (Falhas)"]} ocorrências repetidas nos últimos 30 dias.</b>
+                                    A primária <b>{top_1["Primária"]}</b> possui <b>{top_1["Volume (Falhas)"]} ocorrências repetidas nos últimos {range_dias} dias.</b>
                                 </p>
                             </div>
                             """,
@@ -1457,8 +1520,7 @@ else:
                         "🎉 Excelente! Nenhuma primária ofensora detetada no momento."
                     )
             else:
-                st.error(
-                    f"Falha ao comunicar com a API de Ofensores: {erro_of}")
+                st.error(f"Falha ao comunicar com a API de Ofensores: {erro_of}")
                 logger.error(f"Erro na API de Ofensores: {erro_of}")
 
         # --- ABA CRITICIDADE SHARE ---
@@ -1472,10 +1534,9 @@ else:
                     unsafe_allow_html=True,
                 )
 
-                if 'feedback_enviado' in st.session_state:
-                    st.success(
-                        "Obrigado pelo seu feedback! Retornaremos em breve.")
-                    st.session_state.pop('feedback_enviado', None)
+                if "feedback_enviado" in st.session_state:
+                    st.success("Obrigado pelo seu feedback! Retornaremos em breve.")
+                    st.session_state.pop("feedback_enviado", None)
                     if st.button("Enviar outro feedback", width="stretch"):
                         st.rerun()
                 else:
@@ -1496,7 +1557,7 @@ else:
                         contato = st.text_input(
                             "Seu email (opcional, para retorno):",
                             placeholder="Exemplo: seu.email@exemplo.com",
-                            value=st.session_state.get("email", "")
+                            value=st.session_state.get("email", ""),
                         )
                         submit = st.form_submit_button("Enviar Feedback")
                         if submit:
@@ -1504,15 +1565,18 @@ else:
                                 if descricao.strip():
                                     salvar_feedback(tipo, descricao, contato)
                                     logger.info(
-                                        f"Novo feedback recebido - Tipo: {tipo}, Contato: {contato if contato else 'Não fornecido'}")
-                                    st.session_state['feedback_enviado'] = True
+                                        f"Novo feedback recebido - Tipo: {tipo}, Contato: {contato if contato else 'Não fornecido'}"
+                                    )
+                                    st.session_state["feedback_enviado"] = True
                                     st.rerun()
                                 else:
                                     st.error(
-                                        "Por favor, descreva o problema ou sugestão antes de enviar.")
+                                        "Por favor, descreva o problema ou sugestão antes de enviar."
+                                    )
                             except Exception as e:
                                 st.error(
-                                    "Ocorreu um erro ao enviar seu feedback. Por favor, tente novamente mais tarde.")
+                                    "Ocorreu um erro ao enviar seu feedback. Por favor, tente novamente mais tarde."
+                                )
                                 logger.error(f"Erro ao salvar feedback: {e}")
     else:
         st.error("Erro ao carregar dados.")
