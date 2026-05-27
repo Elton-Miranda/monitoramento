@@ -1061,9 +1061,6 @@ else:
             tab_cl = None
 
         # --- ABA OPERACIONAL ---
-        if st.session_state.get("visualizacao") is None:
-            st.toast("Aba **Ofensores** está :violet[operacional!]", icon="🚨")
-            st.session_state.visualizacao = True
         with tab_op:
             c_sel, c_ref = st.columns([5, 1], gap="small")
             with c_sel:
@@ -1446,7 +1443,7 @@ else:
                 st.session_state.at_sel = None
                 st.session_state.contract = contrato_atual
             range_dias = st.slider(
-                '**Selecione o Range**', min_value=5, max_value=90, value=30, step=5,
+                '**Selecione o Range**', min_value=5, max_value=365, value=30, step=5,
                 help='Selecione o range de dias para ver as primárias afetadas',
             )
             
@@ -1500,17 +1497,34 @@ else:
                             )
 
                         st.markdown("##### 📋 Detalhamento dos casos repetidos")
-                        st.dataframe(
-                            df_rank[
-                                [
-                                    "Primária",
-                                    "Município",
-                                    "Volume (Falhas)",
-                                    "Ocorrências",
-                                ]
-                            ],
+                        evento_selecao = st.dataframe(
+                            df_rank,
                             hide_index=True,
+                            selection_mode='single-cell',
+                            on_select='rerun',
+                            column_config={
+                                "Volume (Falhas)": st.column_config.NumberColumn(
+                                    alignment="center", # alinhamento dos números.
+                                )
+                            }
                         )
+
+                        # tratamento da seleção da célula
+
+                        if "selection" in evento_selecao:
+                            if evento_selecao['selection'].get('cells') != []:
+                                celula = evento_selecao['selection'].get('cells')
+                                content = celula.pop() if celula else ''
+                                row = content[1]
+                                valor = df_rank.at[content[0], 'Primária']
+                        
+                        # TODO: desenvolvimento futuro
+                        # with st.container():
+                        #     st.subheader(f'Adicionar alerta para primária teste')
+                        #     with st.form("meu_formulario"):
+                        #         st.markdown('# painel de teste')
+                                            
+
                     else:
                         st.info(
                             "Nenhuma primária ofensora encontrada para a AT selecionada."
