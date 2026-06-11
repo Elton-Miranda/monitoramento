@@ -1050,13 +1050,12 @@ else:
     if df_raw is not None:
         # --- ABAS DE PERFIS ---
         if PERFIL in ["master", "admin"]:
-            tab_op, tab_cl, tab_of, tab_share = st.tabs(
-                ["Operacional", "Cluster", "Ofensores", "Criticidade Share"]
+            tab_op, tab_cl, tab_of, tab_report = st.tabs(
+                ["Operacional", "Cluster", "Ofensores", "Reportar Bug"]
             )
-            tab_report = None
         else:
-            tab_op, tab_of, tab_share, tab_report = st.tabs(
-                ["Operacional", "Ofensores", "Criticidade Share", "Reportar Bugs"]
+            tab_op, tab_of, tab_report = st.tabs(
+                ["Operacional", "Ofensores", "Reportar Bug"]
             )
             tab_cl = None
 
@@ -1537,60 +1536,57 @@ else:
                 st.error(f"Falha ao comunicar com a API de Ofensores: {erro_of}")
                 logger.error(f"Erro na API de Ofensores: {erro_of}")
 
-        # --- ABA CRITICIDADE SHARE ---
-        with tab_share:
-            st.markdown("Em construção ... 🚧")
+        with tab_report:
+            st.markdown(
+                "<h3 style='color:#1e293b;'>Reportar Bugs e Sugestões</h3>",
+                unsafe_allow_html=True,
+            )
 
-        if tab_report:
-            with tab_report:
-                st.markdown(
-                    "<h3 style='color:#1e293b;'>🐞 Reportar Bugs e Sugestões</h3>",
-                    unsafe_allow_html=True,
-                )
-
-                if "feedback_enviado" in st.session_state:
-                    st.success("Obrigado pelo seu feedback! Retornaremos em breve.")
-                    st.session_state.pop("feedback_enviado", None)
+            if "feedback_enviado" in st.session_state:
+                st.success("Obrigado pelo seu feedback!")
+                st.session_state.pop("feedback_enviado", None)
+                c1, c2, c3 = st.columns([2,1,2])
+                with c2:
                     if st.button("Enviar outro feedback", width="stretch"):
                         st.rerun()
-                else:
-                    st.markdown(
-                        "Se encontrou algum problema ou tem uma sugestão de melhoria, por favor preencha o formulário abaixo. Sua contribuição é muito importante para nós!"
+            else:
+                st.markdown(
+                    "Reporte um problema ou sugestão através do formulário abaixo."
+                )
+                with st.form("form_report"):
+                    tipo = st.selectbox(
+                        "Tipo de Feedback",
+                        ["Bug", "Sugestão de Melhoria"],
+                        label_visibility="collapsed",
                     )
-                    with st.form("form_report"):
-                        tipo = st.selectbox(
-                            "Tipo de Feedback",
-                            ["Bug", "Sugestão de Melhoria"],
-                            label_visibility="collapsed",
-                        )
-                        descricao = st.text_area(
-                            "Descreva o problema ou sugestão com detalhes:",
-                            placeholder="Exemplo: 'Na aba Operacional, ao filtrar por região, os dados não atualizam corretamente.'",
-                            height=150,
-                        )
-                        contato = st.text_input(
-                            "Seu email (opcional, para retorno):",
-                            placeholder="Exemplo: seu.email@exemplo.com",
-                            value=st.session_state.get("email", ""),
-                        )
-                        submit = st.form_submit_button("Enviar Feedback")
-                        if submit:
-                            try:
-                                if descricao.strip():
-                                    salvar_feedback(tipo, descricao, contato)
-                                    logger.info(
-                                        f"Novo feedback recebido - Tipo: {tipo}, Contato: {contato if contato else 'Não fornecido'}"
-                                    )
-                                    st.session_state["feedback_enviado"] = True
-                                    st.rerun()
-                                else:
-                                    st.error(
-                                        "Por favor, descreva o problema ou sugestão antes de enviar."
-                                    )
-                            except Exception as e:
-                                st.error(
-                                    "Ocorreu um erro ao enviar seu feedback. Por favor, tente novamente mais tarde."
+                    descricao = st.text_area(
+                        "Descreva o problema ou sugestão com detalhes:",
+                        placeholder="Descrição do problema \\ Sugestão.",
+                        height=150,
+                    )
+                    contato = st.text_input(
+                        "Seu email (opcional, para retorno):",
+                        placeholder="Exemplo: seu.email@exemplo.com",
+                        value=st.session_state.get("email", ""),
+                    )
+                    submit = st.form_submit_button("Enviar Feedback")
+                    if submit:
+                        try:
+                            if descricao.strip():
+                                salvar_feedback(tipo, descricao, contato)
+                                logger.info(
+                                    f"Novo feedback recebido - Tipo: {tipo}, Contato: {contato if contato else 'Não fornecido'}"
                                 )
-                                logger.error(f"Erro ao salvar feedback: {e}")
+                                st.session_state["feedback_enviado"] = True
+                                st.rerun()
+                            else:
+                                st.error(
+                                    "Por favor, descreva o problema ou sugestão antes de enviar."
+                                )
+                        except Exception as e:
+                            st.error(
+                                "Ocorreu um erro ao enviar seu feedback. Por favor, tente novamente mais tarde."
+                            )
+                            logger.error(f"Erro ao salvar feedback: {e}")
     else:
         st.error("Erro ao carregar dados.")
