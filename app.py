@@ -77,9 +77,7 @@ def get_secret(section, key):
 
 API_URL = get_secret("api", "url") or ""
 API_URL_OFENSORES = get_secret("api", "url_ofensores") or ""
-API_HEADERS = (
-    dict(st.secrets["api"].get("headers", {})) if get_secret("api", "headers") else {}
-)
+API_URL_DMINUSONE = get_secret("api", "d_minus_one") or ""
 
 # ==============================================================================
 # 🚪 LÓGICA DE LOGIN
@@ -451,7 +449,7 @@ else:
 
         if API_URL:
             try:
-                response = requests.get(API_URL, headers=API_HEADERS, timeout=25)
+                response = requests.get(API_URL, timeout=25)
                 if response.status_code == 200:
                     data = response.json()
                     if "ocorrencias" in data:
@@ -554,7 +552,7 @@ else:
             response = requests.get(
                 API_URL_OFENSORES,
                 params={"contrato": contrato_ofensor, "range": range},
-                headers=API_HEADERS,
+                # headers=API_HEADERS,
                 timeout=25,
             )
 
@@ -565,6 +563,20 @@ else:
         except Exception as e:
             logger.error(f"Erro ao carregar dados de ofensores: {str(e)}")
             return None, str(e)
+
+    @st.cache_data(ttl=300, show_spinner=False)
+    def carregar_dMinusOne(contrato_ofensor):  # TODO: implements request dminusone
+        logger.info(API_URL_DMINUSONE)
+        try:
+            response = requests.get(
+                API_URL_DMINUSONE, params={"contrato": contrato_ofensor}
+            )
+            count = len(response.json())
+            logger.debug(f'{count=} {contrato_ofensor=}')
+            return(count)
+        except Exception as e:
+            logger.error(e)
+
 
     def processar_json_ofensores(
         dados_json, at_sel: list[str] | None = None
@@ -1101,6 +1113,7 @@ else:
                 "no_prazo": len(df_view[df_view["Status SLA"] == "No Prazo"]),
                 "lit": len(df_view[df_view["Area"] == "Litoral"]),
                 "vale": len(df_view[df_view["Area"] == "Vale"]),
+                "dMinusOne": carregar_dMinusOne(contrato_atual)  # TODO: implements
             }
 
             c_style = "background:white;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;padding:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;justify-content:center;height:80px;"
@@ -1119,6 +1132,7 @@ else:
 
             if contrato_atual == "ABILITY_SJ":
                 html += f"""<div style="{c_style}"><div style="font-size:11px;color:#64748b;">Litoral</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k["lit"]} {badge(k["lit"], t, "#7c3aed")}</div></div><div style="{c_style}"><div style="font-size:11px;color:#64748b;">Vale</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k["vale"]} {badge(k["vale"], t, "#7c3aed")}</div></div>"""
+            html += f"""<div style="{c_style.replace("#7c3aed", "#b60098")}"><div style="font-size:11px;color:#B60098;">D-1</div><div style="font-size:18px;font-weight:800;color:#B60098;">{k["dMinusOne"]} {badge(1, 10, "#b60098").replace('10%', 'N/D %')}</div></div>"""
             st.markdown(html + "</div>", unsafe_allow_html=True)
 
             gv = len(df_view[df_view["Afetação"] >= 100])

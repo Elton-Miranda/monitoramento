@@ -15,6 +15,7 @@ __pycache__/
 # Diretório de teste
 tests/
 .old/
+remake/
 
 # Diretórios de documentação de desenvolvimento
 .docs
