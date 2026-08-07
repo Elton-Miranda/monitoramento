@@ -565,18 +565,30 @@ else:
             return None, str(e)
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def carregar_dMinusOne(contrato_ofensor):  # TODO: implements request dminusone
-        logger.info(API_URL_DMINUSONE)
+    def carregar_dMinusOne(contrato_ofensor):
+        from util import oc_vencida
+
+        logger.debug(API_URL_DMINUSONE)
         try:
             response = requests.get(
                 API_URL_DMINUSONE, params={"contrato": contrato_ofensor}
             )
             count = len(response.json())
-            logger.debug(f'{count=} {contrato_ofensor=}')
-            return(count)
+            logger.debug(f"{count=} {contrato_ofensor=}")
+            reincidencia = sum([1 if x["reincidencia"] else 0 for x in response.json()])
+            prazo = sum(
+                [
+                    1
+                    if not oc_vencida(x["data_ocorrencia"], x["data_ocorrencia_final"])[
+                        "expired"
+                    ]
+                    else 0
+                    for x in response.json()
+                ]
+            )
+            return {"ocorrencias": count, "prazo": prazo, "reincidencia": reincidencia}
         except Exception as e:
             logger.error(e)
-
 
     def processar_json_ofensores(
         dados_json, at_sel: list[str] | None = None
@@ -1088,6 +1100,7 @@ else:
             with c_ref:
                 if st.button("🔄 Atualizar", width="stretch"):
                     carregar_dados_api.clear()
+                    carregar_dMinusOne.clear()
                     st.rerun()
 
             df_view = processar_dados(df_raw, contrato_atual)
@@ -1105,6 +1118,13 @@ else:
 
             # KPIs HTML
             t = len(df_view)
+            dados = carregar_dMinusOne(contrato_atual)
+            ocorrencias, prazo, reincidencia = 0, 0, 0
+            if dados:
+                ocorrencias = dados.get('ocorrencias')
+                prazo = dados.get('prazo')
+                reincidencia = dados.get('reincidencia')
+
             k = {
                 "total": t,
                 "sem_tec": len(df_view[df_view["Técnicos"] == 0]),
@@ -1113,7 +1133,6 @@ else:
                 "no_prazo": len(df_view[df_view["Status SLA"] == "No Prazo"]),
                 "lit": len(df_view[df_view["Area"] == "Litoral"]),
                 "vale": len(df_view[df_view["Area"] == "Vale"]),
-                "dMinusOne": carregar_dMinusOne(contrato_atual)  # TODO: implements
             }
 
             c_style = "background:white;border:1px solid #e2e8f0;border-left:4px solid #7c3aed;padding:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;justify-content:center;height:80px;"
@@ -1132,7 +1151,11 @@ else:
 
             if contrato_atual == "ABILITY_SJ":
                 html += f"""<div style="{c_style}"><div style="font-size:11px;color:#64748b;">Litoral</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k["lit"]} {badge(k["lit"], t, "#7c3aed")}</div></div><div style="{c_style}"><div style="font-size:11px;color:#64748b;">Vale</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k["vale"]} {badge(k["vale"], t, "#7c3aed")}</div></div>"""
-            html += f"""<div style="{c_style.replace("#7c3aed", "#b60098")}"><div style="font-size:11px;color:#B60098;">D-1</div><div style="font-size:18px;font-weight:800;color:#B60098;">{k["dMinusOne"]} {badge(1, 10, "#b60098").replace('10%', 'N/D %')}</div></div>"""
+            html += f"""
+            <div style="{c_style.replace("#7c3aed", "#b60098")}"><div style="font-size:11px;color:#B60098;">Ocorrências D-1</div><div style="font-size:18px;font-weight:800;color:#B60098;">{ocorrencias}</div></div>
+            <div style="{c_style.replace("#7c3aed", "#b60098")}"><div style="font-size:11px;color:#B60098;">Prazo D-1</div><div style="font-size:18px;font-weight:800;color:#B60098;">{prazo} {badge(prazo, ocorrencias, "#b60098")}</div></div>
+            <div style="{c_style.replace("#7c3aed", "#b60098")}"><div style="font-size:11px;color:#B60098;">Reincidência D-1</div><div style="font-size:18px;font-weight:800;color:#B60098;">{reincidencia} {badge(reincidencia, ocorrencias, "#b60098")}</div></div>
+            """
             st.markdown(html + "</div>", unsafe_allow_html=True)
 
             gv = len(df_view[df_view["Afetação"] >= 100])
@@ -1522,7 +1545,8 @@ else:
                             on_select="rerun",
                             column_config={
                                 "Volume (Falhas)": st.column_config.NumberColumn(
-                                    alignment="center",  # alinhamento dos números.
+                                    # alinhamento dos números.
+                                    alignment="center",
                                 )
                             },
                         )
