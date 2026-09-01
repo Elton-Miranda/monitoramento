@@ -451,7 +451,7 @@ else:
             try:
                 response = requests.get(API_URL, timeout=25)
                 if response.status_code == 200:
-                    data = response.json()
+                    data = response.json() # response api
                     if "ocorrencias" in data:
                         df_api = pd.DataFrame(data["ocorrencias"])
                 else:
@@ -1074,11 +1074,11 @@ else:
     if df_raw is not None:
         # --- ABAS DE PERFIS ---
         if PERFIL in ["master", "admin"]:
-            tab_op, tab_cl, tab_report = st.tabs( # tab_of
+            tab_op, tab_cl, tab_report = st.tabs(  # tab_of
                 ["Operacional", "Cluster", "Reportar Bug"]
             )
         else:
-            tab_op, tab_of, tab_report = st.tabs( # tab_of
+            tab_op, tab_report = st.tabs(  # tab_of
                 ["Operacional", "Reportar Bug"]
             )
             tab_cl = None
@@ -1121,9 +1121,9 @@ else:
             dados = carregar_dMinusOne(contrato_atual)
             ocorrencias, prazo, reincidencia = 0, 0, 0
             if dados:
-                ocorrencias = dados.get('ocorrencias')
-                prazo = dados.get('prazo')
-                reincidencia = dados.get('reincidencia')
+                ocorrencias = dados.get("ocorrencias")
+                prazo = dados.get("prazo")
+                reincidencia = dados.get("reincidencia")
 
             k = {
                 "total": t,
