@@ -20,7 +20,7 @@ from feedback import salvar_feedback
 from log import salvar_log_no_sqlite
 
 # Versão do SigmaOPS
-version = "1.3.5"
+version = "1.4.5"
 
 
 @st.cache_resource
@@ -1084,42 +1084,17 @@ else:
 
         # --- ABA INFO DE PRIMÁRIA
         with tab_prim:
-            from api import open_connection
-            from sqlalchemy import text
-
-            # dataframe de teste
-            # df = pd.DataFrame(
-            #     {
-            #         "ocorrencia": [100001, 100002, 100003, 100004, 100005],
-            #         "afetação": [1, 10, 100, 50, 25],
-            #         "data_ocorrencia": [
-            #             "2025-10-03",
-            #             "2026-07-09",
-            #             "2026-07-09",
-            #             "2026-07-08",
-            #             "2026-07-10",
-            #         ],
-            #         "data_ocorrencia_final": [
-            #             "2026-10-25",
-            #             "2026-07-10",
-            #             "2026-07-11",
-            #             "2026-07-12",
-            #             "2026-07-15",
-            #         ],
-            #     }
-            # )
-
-            # Transformação para data
-            # df["data_ocorrencia"] = pd.to_datetime(df["data_ocorrencia"])
-            # df["data_ocorrencia_final"] = pd.to_datetime(df["data_ocorrencia_final"])
+            from api import primary_search
 
             col1, col2 = st.columns([4, 1])
 
             with col1:
                 if st.text_input(
                     "Pesquisar",
+                    placeholder="AT ou CNL ou CABO ou PRIMÁRIA ou combinação de ambos e % como coringa.",
                     key="primary_search",
                     label_visibility="collapsed",
+                    icon="🔍"
                 ):
                     pass
 
@@ -1128,37 +1103,29 @@ else:
                     st.rerun()
 
             # dataframe das informações pesquisadas
-            st.title(st.session_state["primary_search"] or "1234AB01-F#111 (SAMPLE)")
+            st.title(st.session_state["primary_search"].upper())
 
-            if (st.session_state["primary_search"]):
+            if st.session_state["primary_search"]:
                 try:
-                    engine = open_connection()
-                    query = text("""
-                    SELECT
-                        p.cod_primaria,
-                        p.id_ocorrencia,
-                        o.afetacao,
-                        o.data_ocorrencia,
-                        o.data_ocorrencia_final,
-                        o.logradouro
-                    FROM ocorrencia_primaria p
-                    INNER JOIN ocorrencias_txt o
-                    ON p.id_ocorrencia = o.id_ocorrencia
-                    WHERE p.cod_primaria = :cod AND o.status = 'FECHADO'""")
-                    df = pd.read_sql(query, con=engine, params={"cod": st.session_state["primary_search"]})
+                    df = primary_search(st.session_state["primary_search"])
                     if not df.empty:
                         st.dataframe(
                             df,
                             width="stretch",
                             hide_index=True,
                             column_config={
-                                "ocorrencia": st.column_config.NumberColumn(alignment="center"),
-                                "afetação": st.column_config.TextColumn(alignment="center"),
+                                "ocorrencia": st.column_config.NumberColumn(
+                                    alignment="center"
+                                ),
+                                "afetação": st.column_config.TextColumn(
+                                    alignment="center"
+                                ),
                                 "data_ocorrencia": st.column_config.DateColumn(
                                     label="Data Abertura", format="DD/MM/YYYY HH:mm:ss"
                                 ),
                                 "data_ocorrencia_final": st.column_config.DateColumn(
-                                    label="Data Fechamento", format="DD/MM/YYYY HH:mm:ss"
+                                    label="Data Fechamento",
+                                    format="DD/MM/YYYY HH:mm:ss",
                                 ),
                             },
                         )
@@ -1527,140 +1494,6 @@ else:
                     st.dataframe(resumo, width="stretch", hide_index=True)
                 else:
                     st.warning("Selecione pelo menos um contrato.")
-
-        # --- ABA OFENSORES ---
-        # with tab_of:
-        #     st.session_state.at_sel = None  # Variável para armazenar a seleção de ATs
-        #     st.markdown(
-        #         "<h3 style='color:#1e293b;'>🏆 Ranking de Primárias Ofensoras</h3>",
-        #         unsafe_allow_html=True,
-        #     )
-        #     st.markdown("Monitorização de equipamentos em crise com base na API.")
-
-        #     # 1. Lógica de renderização visual (Exclusiva para master/admin)
-        #     if st.session_state.role in ["master", "admin"]:
-        #         c_f1, c_f2 = st.columns(
-        #             [5, 1], gap="xxsmall", vertical_alignment="bottom"
-        #         )
-
-        #         with c_f1:
-        #             st.session_state.at_sel = [
-        #                 at.strip().upper()
-        #                 for at in st.text_input(
-        #                     "Filtrar por AT (Digite a sigla, ex: SJ, TT):",
-        #                     placeholder="Deixe em branco para ver todas as ATs...",
-        #                     icon="🔍",
-        #                 ).split(",")
-        #             ]
-
-        #         with c_f2:
-        #             if st.button(
-        #                 "🔄 Atualizar", use_container_width=True, key="btn_upd1"
-        #             ):
-        #                 carregar_dados_ofensores.clear()
-        #                 st.rerun()
-        #     else:
-        #         st.session_state.at_sel = None
-        #         st.session_state.contract = contrato_atual
-        #     range_dias = st.slider(
-        #         "**Selecione o Range**",
-        #         min_value=5,
-        #         max_value=365,
-        #         value=30,
-        #         step=5,
-        #         help="Selecione o range de dias para ver as primárias afetadas",
-        #     )
-
-        #     # carregamento de dados da api de ofensores, com cache para 5 minutos
-        #     dados_of, erro_of = carregar_dados_ofensores(
-        #         st.session_state.contract, range_dias
-        #     )
-        #     logger.debug(
-        #         f"Dados de ofensores carregados para o contrato {st.session_state.contract}"
-        #     )
-
-        #     if dados_of is not None:
-        #         # processamento dos dados para ranking
-        #         df_rank = processar_json_ofensores(dados_of, st.session_state.at_sel)
-
-        #         if not df_rank.empty:
-        #             if not df_rank.empty:
-        #                 if st.session_state.role in ["master", "admin"]:
-        #                     c_sel, c_ref = st.columns([5, 1], gap="small")
-        #                     with c_sel:
-        #                         st.session_state.contract = st.radio(
-        #                             "Selecione o Contrato:",
-        #                             CONTRATOS_VALIDOS,
-        #                             horizontal=True,
-        #                             label_visibility="collapsed",
-        #                             key="contrato_ofensor",
-        #                             width="content",
-        #                             index=CONTRATOS_VALIDOS.index(
-        #                                 st.session_state.contract
-        #                             ),
-        #                             on_change=atualizar_contrato_callback,
-        #                         )
-        #                 else:
-        #                     if st.button(
-        #                         "🔄 Atualizar Base", use_container_width=False
-        #                     ):
-        #                         carregar_dados_ofensores.clear()
-        #                         st.rerun()
-
-        #                 top_1 = df_rank.iloc[0]
-        #                 if top_1["Volume (Falhas)"] > 1:
-        #                     st.markdown(
-        #                         f"""
-        #                     <div style='background-color: #fee2e2; border-left: 5px solid #dc2626; padding: 15px; border-radius: 8px; margin-bottom: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
-        #                         <h4 style='color: #991b1b; margin: 0; font-weight: 800;'>🚨 ALERTA DE OFENSOR CRÍTICO</h4>
-        #                         <p style='color: #7f1d1d; margin: 5px 0 0 0; font-size: 15px;'>
-        #                             A primária <b>{top_1["Primária"]}</b> possui <b>{top_1["Volume (Falhas)"]} ocorrências repetidas nos últimos {range_dias} dias.</b>
-        #                         </p>
-        #                     </div>
-        #                     """,
-        #                         unsafe_allow_html=True,
-        #                     )
-
-        #                 st.markdown("##### 📋 Detalhamento dos casos repetidos")
-        #                 evento_selecao = st.dataframe(
-        #                     df_rank,
-        #                     hide_index=True,
-        #                     selection_mode="single-cell",
-        #                     on_select="rerun",
-        #                     column_config={
-        #                         "Volume (Falhas)": st.column_config.NumberColumn(
-        #                             # alinhamento dos números.
-        #                             alignment="center",
-        #                         )
-        #                     },
-        #                 )
-
-        #                 # tratamento da seleção da célula
-
-        #                 if "selection" in evento_selecao:
-        #                     if evento_selecao["selection"].get("cells") != []:
-        #                         celula = evento_selecao["selection"].get("cells")
-        #                         content = celula.pop() if celula else ""
-        #                         row = content[1]
-        #                         valor = df_rank.at[content[0], "Primária"]
-
-        #                 # TODO: desenvolvimento futuro
-        #                 # with st.container():
-        #                 #     st.subheader(f'Adicionar alerta para primária teste')
-        #                 #     with st.form("meu_formulario"):
-        #                 #         st.markdown('# painel de teste')
-
-        #             else:
-        #                 st.info(
-        #                     "Nenhuma primária ofensora encontrada para a AT selecionada."
-        #                 )
-        #         else:
-        #             st.info(
-        #                 "🎉 Excelente! Nenhuma primária ofensora detetada no momento."
-        #             )
-        #     else:
-        #         st.error(f"Falha ao comunicar com a API de Ofensores: {erro_of}")
-        #         logger.error(f"Erro na API de Ofensores: {erro_of}")
 
         with tab_report:
             st.markdown(
