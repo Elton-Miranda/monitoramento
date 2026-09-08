@@ -1,6 +1,6 @@
 import bcrypt
 from datetime import datetime
-from sqlalchemy import ForeignKey, Text, create_engine, func, event, Engine
+from sqlalchemy import ForeignKey, Text, create_engine, func, event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -17,7 +17,7 @@ Session = sessionmaker(
 )
 
 
-@event.listens_for(Engine, "connect")
+@event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")

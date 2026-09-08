@@ -451,7 +451,7 @@ else:
             try:
                 response = requests.get(API_URL, timeout=25)
                 if response.status_code == 200:
-                    data = response.json() # response api
+                    data = response.json()  # response api
                     if "ocorrencias" in data:
                         df_api = pd.DataFrame(data["ocorrencias"])
                 else:
@@ -1074,14 +1074,98 @@ else:
     if df_raw is not None:
         # --- ABAS DE PERFIS ---
         if PERFIL in ["master", "admin"]:
-            tab_op, tab_cl, tab_report = st.tabs(  # tab_of
-                ["Operacional", "Cluster", "Reportar Bug"]
+            tab_op, tab_prim, tab_cl, tab_report = st.tabs(  # tab_of
+                ["Operacional", "Primaria Info", "Cluster", "Reportar Bug"]
             )
         else:
-            tab_op, tab_report = st.tabs(  # tab_of
-                ["Operacional", "Reportar Bug"]
+            tab_op, tab_prim, tab_report = st.tabs(  # tab_of
+                ["Operacional", "Primaria Info", "Reportar Bug"]
             )
-            tab_cl = None
+
+        # --- ABA INFO DE PRIMÁRIA
+        with tab_prim:
+            from api import open_connection
+            from sqlalchemy import text
+
+            # dataframe de teste
+            # df = pd.DataFrame(
+            #     {
+            #         "ocorrencia": [100001, 100002, 100003, 100004, 100005],
+            #         "afetação": [1, 10, 100, 50, 25],
+            #         "data_ocorrencia": [
+            #             "2025-10-03",
+            #             "2026-07-09",
+            #             "2026-07-09",
+            #             "2026-07-08",
+            #             "2026-07-10",
+            #         ],
+            #         "data_ocorrencia_final": [
+            #             "2026-10-25",
+            #             "2026-07-10",
+            #             "2026-07-11",
+            #             "2026-07-12",
+            #             "2026-07-15",
+            #         ],
+            #     }
+            # )
+
+            # Transformação para data
+            # df["data_ocorrencia"] = pd.to_datetime(df["data_ocorrencia"])
+            # df["data_ocorrencia_final"] = pd.to_datetime(df["data_ocorrencia_final"])
+
+            col1, col2 = st.columns([4, 1])
+
+            with col1:
+                if st.text_input(
+                    "Pesquisar",
+                    key="primary_search",
+                    label_visibility="collapsed",
+                ):
+                    pass
+
+            with col2:
+                if st.button("Pesquisar", width="stretch"):
+                    st.rerun()
+
+            # dataframe das informações pesquisadas
+            st.title(st.session_state["primary_search"] or "1234AB01-F#111 (SAMPLE)")
+
+            if (st.session_state["primary_search"]):
+                try:
+                    engine = open_connection()
+                    query = text("""
+                    SELECT
+                        p.cod_primaria,
+                        p.id_ocorrencia,
+                        o.afetacao,
+                        o.data_ocorrencia,
+                        o.data_ocorrencia_final,
+                        o.logradouro
+                    FROM ocorrencia_primaria p
+                    INNER JOIN ocorrencias_txt o
+                    ON p.id_ocorrencia = o.id_ocorrencia
+                    WHERE p.cod_primaria = :cod AND o.status = 'FECHADO'""")
+                    df = pd.read_sql(query, con=engine, params={"cod": st.session_state["primary_search"]})
+                    if not df.empty:
+                        st.dataframe(
+                            df,
+                            width="stretch",
+                            hide_index=True,
+                            column_config={
+                                "ocorrencia": st.column_config.NumberColumn(alignment="center"),
+                                "afetação": st.column_config.TextColumn(alignment="center"),
+                                "data_ocorrencia": st.column_config.DateColumn(
+                                    label="Data Abertura", format="DD/MM/YYYY HH:mm:ss"
+                                ),
+                                "data_ocorrencia_final": st.column_config.DateColumn(
+                                    label="Data Fechamento", format="DD/MM/YYYY HH:mm:ss"
+                                ),
+                            },
+                        )
+                    else:
+                        st.markdown("### Primária não localizada.")
+                except Exception as e:
+                    st.error(e)
 
         # --- ABA OPERACIONAL ---
         with tab_op:
