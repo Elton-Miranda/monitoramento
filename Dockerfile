@@ -1,28 +1,33 @@
-FROM ghcr.io/astral-sh/uv:latest AS uv_bin
-
-FROM python:3.14-slim
+# --- Estágio 1: Build & Instalação de Dependências ---
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Copia os binários do uv
-COPY --from=uv_bin /uv /uvx /bin/
-
-# Impede o uv de criar links físicos (melhor compatibilidade com Docker)
+# Força o uv a compilar os arquivos de bytecode para um startup mais rápido
+ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
-# Evita que o uv crie um ambiente virtual dentro do container, instalando no sistema
-ENV UV_SYSTEM_PYTHON=1
 
-# 1. Copia apenas os arquivos de definição de pacotes
+# Copia apenas os arquivos de definição de pacotes
 COPY pyproject.toml uv.lock ./
 
-# 2. Instala as dependências (sem o código do app ainda)
-# O --frozen garante que o uv não tente atualizar o lockfile
+# Instala as dependências criando uma .venv isolada (sem pacotes de desenvolvimento)
 RUN uv sync --frozen --no-install-project --no-dev
 
-# 3. Agora copia o restante dos arquivos (incluindo database.db)
+# --- Estágio 2: Imagem Final de Produção (Super Leve) ---
+FROM python:3.13-slim AS runner
+
+WORKDIR /app
+
+# Copia o ambiente virtual inteiro gerado pelo uv
+COPY --from=builder /app/.venv /app/.venv
+
+# MÁGICA AQUI: Adiciona os binários da .venv ao PATH do sistema final
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Copia o código fonte do seu app Streamlit
 COPY . .
 
 EXPOSE 8501
 
-# Executa o Streamlit usando o contexto do uv
-CMD ["uv", "run", "streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Agora o sistema encontra o 'streamlit' nativamente no PATH
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]

@@ -3,6 +3,7 @@ tests/
 .old/
 .venv/
 .git/
+.ruff_cache/
 .env
 .gitignore
 Dockerfile
