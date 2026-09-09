@@ -1,4 +1,5 @@
 import pandas as pd
+import requests as rq
 import streamlit as st
 
 from os import getenv
@@ -42,3 +43,27 @@ def primary_search(primaria: str):
     except Exception as e:
         logger.error(e)
         raise SystemError("Erro interno do servidor")
+
+
+def load_dminusOne(contrato_ofensor: str, url: str):
+        from util import oc_vencida
+        try:
+            response = rq.get(
+                url, params={"contrato": contrato_ofensor}
+            )
+            count = len(response.json())
+            logger.debug(f"{count=} {contrato_ofensor=}")
+            reincidencia = sum([1 if x["reincidencia"] else 0 for x in response.json()])
+            prazo = sum(
+                [
+                    1
+                    if not oc_vencida(x["data_ocorrencia"], x["data_ocorrencia_final"])[
+                        "expired"
+                    ]
+                    else 0
+                    for x in response.json()
+                ]
+            )
+            return {"ocorrencias": count, "prazo": prazo, "reincidencia": reincidencia}
+        except Exception as e:
+            logger.error(e)

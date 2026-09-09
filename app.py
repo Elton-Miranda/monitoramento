@@ -14,6 +14,7 @@ from pathlib import Path
 from sqlalchemy import select
 from streamlit_cookies_controller import CookieController
 
+from api import load_dminusOne
 from database import Contract, User, Session
 
 from feedback import salvar_feedback
@@ -138,9 +139,9 @@ def atualizar_contrato_callback():
 
 
 cookie_session = cookie_controller.get("session_token")
+logger.debug(f'cookie info: {cookie_session}')
 
 if cookie_session:
-    logger.debug(f"cookie encontrado {cookie_session}")
     if "logged_in" not in st.session_state:
         with Session() as conn:
             stmt = select(User).where(User.email == cookie_session)
@@ -156,7 +157,7 @@ if cookie_session:
     cookie_controller.set("session_token", cookie_session, expires=nova_validade)
     logger.debug("cookie atualizado")
 else:
-    logger.debug("cookie é nulo")
+    logger.debug("cookie não encontrado")
 
 
 if "logged_in" not in st.session_state:
@@ -563,32 +564,6 @@ else:
         except Exception as e:
             logger.error(f"Erro ao carregar dados de ofensores: {str(e)}")
             return None, str(e)
-
-    @st.cache_data(ttl=300, show_spinner=False)
-    def carregar_dMinusOne(contrato_ofensor):
-        from util import oc_vencida
-
-        logger.debug(API_URL_DMINUSONE)
-        try:
-            response = requests.get(
-                API_URL_DMINUSONE, params={"contrato": contrato_ofensor}
-            )
-            count = len(response.json())
-            logger.debug(f"{count=} {contrato_ofensor=}")
-            reincidencia = sum([1 if x["reincidencia"] else 0 for x in response.json()])
-            prazo = sum(
-                [
-                    1
-                    if not oc_vencida(x["data_ocorrencia"], x["data_ocorrencia_final"])[
-                        "expired"
-                    ]
-                    else 0
-                    for x in response.json()
-                ]
-            )
-            return {"ocorrencias": count, "prazo": prazo, "reincidencia": reincidencia}
-        except Exception as e:
-            logger.error(e)
 
     def processar_json_ofensores(
         dados_json, at_sel: list[str] | None = None
@@ -1073,6 +1048,7 @@ else:
 
     if df_raw is not None:
         # --- ABAS DE PERFIS ---
+        tab_cl = None
         if PERFIL in ["master", "admin"]:
             tab_op, tab_prim, tab_cl, tab_report = st.tabs(  # tab_of
                 ["Operacional", "Primaria Info", "Cluster", "Reportar Bug"]
@@ -1151,7 +1127,6 @@ else:
             with c_ref:
                 if st.button("🔄 Atualizar", width="stretch"):
                     carregar_dados_api.clear()
-                    carregar_dMinusOne.clear()
                     st.rerun()
 
             df_view = processar_dados(df_raw, contrato_atual)
@@ -1169,7 +1144,8 @@ else:
 
             # KPIs HTML
             t = len(df_view)
-            dados = carregar_dMinusOne(contrato_atual)
+            dados = load_dminusOne(contrato_atual, API_URL_DMINUSONE)
+            logger.debug(f'retorno de dados d-1 {dados}')
             ocorrencias, prazo, reincidencia = 0, 0, 0
             if dados:
                 ocorrencias = dados.get("ocorrencias")
