@@ -17,6 +17,22 @@ def open_connection():
     return engine
 
 
+def get_pendant_primary(contrato: str, engine=open_connection()):
+    query = text("""
+        SELECT ocorrencia, afetacao, municipio
+        FROM tela_ocorrencias
+        WHERE contrato = :contrato
+        AND status = "PENDENTE"
+    """)
+    try:
+        df = pd.read_sql(query, engine, params={"contrato": contrato})
+        logger.debug(f"Retorno da consulta: {df.size} item(s)")
+        return df
+    except Exception as e:
+        logger.error(e)
+        raise SystemError("Erro ao executar a consulta, erro registrado no log")
+
+
 def primary_search(primaria: str):
     try:
         engine = open_connection()
@@ -37,33 +53,32 @@ def primary_search(primaria: str):
             con=engine,
             params={"cod": f"%{primaria.upper()}%"},
         )
-        logger.debug(f'Retorno da consulta {len(df)} item(s)')
+        logger.debug(f"Retorno da consulta {len(df)} item(s)")
         return df
-    
+
     except Exception as e:
         logger.error(e)
         raise SystemError("Erro interno do servidor")
 
 
 def load_dminusOne(contrato_ofensor: str, url: str):
-        from util import oc_vencida
-        try:
-            response = rq.get(
-                url, params={"contrato": contrato_ofensor}
-            )
-            count = len(response.json())
-            logger.debug(f"{count=} {contrato_ofensor=}")
-            reincidencia = sum([1 if x["reincidencia"] else 0 for x in response.json()])
-            prazo = sum(
-                [
-                    1
-                    if not oc_vencida(x["data_ocorrencia"], x["data_ocorrencia_final"])[
-                        "expired"
-                    ]
-                    else 0
-                    for x in response.json()
+    from util import oc_vencida
+
+    try:
+        response = rq.get(url, params={"contrato": contrato_ofensor})
+        count = len(response.json())
+        logger.debug(f"{count=} {contrato_ofensor=}")
+        reincidencia = sum([1 if x["reincidencia"] else 0 for x in response.json()])
+        prazo = sum(
+            [
+                1
+                if not oc_vencida(x["data_ocorrencia"], x["data_ocorrencia_final"])[
+                    "expired"
                 ]
-            )
-            return {"ocorrencias": count, "prazo": prazo, "reincidencia": reincidencia}
-        except Exception as e:
-            logger.error(e)
+                else 0
+                for x in response.json()
+            ]
+        )
+        return {"ocorrencias": count, "prazo": prazo, "reincidencia": reincidencia}
+    except Exception as e:
+        logger.error(e)

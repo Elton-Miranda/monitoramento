@@ -14,7 +14,7 @@ from pathlib import Path
 from sqlalchemy import select
 from streamlit_cookies_controller import CookieController
 
-from api import load_dminusOne
+from api import get_pendant_primary, load_dminusOne
 from database import Contract, User, Session
 
 from feedback import salvar_feedback
@@ -139,7 +139,7 @@ def atualizar_contrato_callback():
 
 
 cookie_session = cookie_controller.get("session_token")
-logger.debug(f'cookie info: {cookie_session}')
+logger.debug(f"cookie info: {cookie_session}")
 
 if cookie_session:
     if "logged_in" not in st.session_state:
@@ -1070,7 +1070,7 @@ else:
                     placeholder="AT ou CNL ou CABO ou PRIMÁRIA ou combinação de ambos e % como coringa.",
                     key="primary_search",
                     label_visibility="collapsed",
-                    icon="🔍"
+                    icon="🔍",
                 ):
                     pass
 
@@ -1145,7 +1145,7 @@ else:
             # KPIs HTML
             t = len(df_view)
             dados = load_dminusOne(contrato_atual, API_URL_DMINUSONE)
-            logger.debug(f'retorno de dados d-1 {dados}')
+            logger.debug(f"retorno de dados d-1 {dados}")
             ocorrencias, prazo, reincidencia = 0, 0, 0
             if dados:
                 ocorrencias = dados.get("ocorrencias")
