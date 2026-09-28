@@ -1,22 +1,22 @@
-import bcrypt
+#!/usr/bin/env python3
 import io
 import os
 import sys
 import time
-import matplotlib.patches as patches
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import bcrypt
 import pandas as pd
 import requests
 import streamlit as st
-
-from datetime import datetime, timedelta, timezone
 from loguru import logger
-from pathlib import Path
+from matplotlib import patches
 from sqlalchemy import select
 from streamlit_cookies_controller import CookieController
 
-from api import get_pendant_primary, load_dminusOne
-from database import Contract, User, Session
-
+from api import load_dminusOne
+from database import Contract, Session, User
 from feedback import salvar_feedback
 from log import salvar_log_no_sqlite
 
@@ -59,7 +59,7 @@ CONTRATOS_VALIDOS = [
     "TELEMONT",
 ]
 
-nome_arq = datetime.now().strftime("%H%M")
+nome_arq = datetime.now(time.tzset()).strftime("%H%M")
 
 if "contrato_ofensor" not in st.session_state:
     st.session_state.contrato_ofensor = CONTRATOS_VALIDOS[0]
@@ -72,7 +72,7 @@ if "contrato_ofensor" not in st.session_state:
 def get_secret(section, key):
     try:
         return st.secrets[section][key]
-    except:
+    except FileNotFoundError:
         return None
 
 
@@ -1050,12 +1050,12 @@ else:
         # --- ABAS DE PERFIS ---
         tab_cl = None
         if PERFIL in ["master", "admin"]:
-            tab_op, tab_prim, tab_cl, tab_report = st.tabs(  # tab_of
-                ["Operacional", "Primaria Info", "Cluster", "Reportar Bug"]
+            tab_op, tab_prim, tab_map, tab_cl, tab_report = st.tabs(  # tab_of
+                ["Operacional", "Primaria Info", "Map", "Cluster", "Reportar Bug"]
             )
         else:
-            tab_op, tab_prim, tab_report = st.tabs(  # tab_of
-                ["Operacional", "Primaria Info", "Reportar Bug"]
+            tab_op, tab_prim, tab_map, tab_report = st.tabs(  # tab_of
+                ["Operacional", "Primaria Info", "Map", "Reportar Bug"]
             )
 
         # --- ABA INFO DE PRIMÁRIA
@@ -1109,6 +1109,54 @@ else:
                         st.markdown("### Primária não localizada.")
                 except Exception as e:
                     st.error(e)
+
+        # --- ABA MAPS ---
+
+        import folium
+        import numpy as np
+        from folium.plugins import HeatMap
+        from streamlit_folium import st_folium
+
+        @st.cache_data
+        def gerar_dados():
+            base_lat, base_lon = -23.5505, -46.6333  # São Paulo
+            num_pontos = 50
+
+            lats = base_lat + np.random.uniform(-0.1, 0.1, num_pontos)
+            lons = base_lon + np.random.uniform(-0.1, 0.1, num_pontos)
+            intensidades = np.random.uniform(0.1, 1.0, num_pontos)  # Peso do calor
+
+            df = pd.DataFrame(
+                {"latitude": lats, "longitude": lons, "peso": intensidades}
+            )
+            return df
+
+        df_dados = gerar_dados()
+
+        # 2. Controles na barra lateral do Streamlit
+        st.sidebar.header("Configurações do Mapa")
+        raio_calor = st.sidebar.slider(
+            "Raio do Ponto de Calor", min_value=5, max_value=30, value=15
+        )
+
+        opacidade = st.sidebar.slider(
+            "Opacidade", min_value=0.1, max_value=1.0, value=0.6
+        )
+
+        # 3. Criar o mapa base Leaflet (centralizado em SP)
+        mapa = folium.Map(
+            location=[-23.5505, -46.6333], zoom_start=11, tiles="OpenStreetMap"
+        )
+
+        # 4. Preparar os dados para o plugin HeatMap do Leaflet
+        dados_calor = df_dados[["latitude", "longitude", "peso"]].values.tolist()
+
+        # 5. Adicionar o mapa de calor ao mapa base
+        HeatMap(
+            data=dados_calor, radius=raio_calor, max_zoom=13, min_opacity=opacidade
+        ).add_to(mapa)
+
+        st_folium(mapa, width="70%", height=400)
 
         # --- ABA OPERACIONAL ---
         with tab_op:

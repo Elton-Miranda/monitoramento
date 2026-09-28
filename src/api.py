@@ -1,10 +1,11 @@
+#!/usr/bin/env pytho
+from os import getenv
+
 import pandas as pd
 import requests as rq
 import streamlit as st
-
-from os import getenv
-from loguru import logger
 from dotenv import load_dotenv
+from loguru import logger
 from sqlalchemy import create_engine, text
 
 load_dotenv()
@@ -82,3 +83,7 @@ def load_dminusOne(contrato_ofensor: str, url: str):
         return {"ocorrencias": count, "prazo": prazo, "reincidencia": reincidencia}
     except Exception as e:
         logger.error(e)
+
+
+def obter_ocorrencias_filtradas(contrato, afetacao, municipio, status, at):
+    pass
