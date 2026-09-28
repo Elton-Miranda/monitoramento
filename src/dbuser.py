@@ -1,6 +1,8 @@
-import bcrypt
+#!/usr/bin/env python3
 from datetime import datetime
-from sqlalchemy import ForeignKey, Text, create_engine, func, event
+
+import bcrypt
+from sqlalchemy import ForeignKey, Text, create_engine, event, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import (
     DeclarativeBase,

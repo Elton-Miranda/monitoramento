@@ -3,8 +3,9 @@ import io
 import os
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import bcrypt
 import pandas as pd
@@ -16,7 +17,7 @@ from sqlalchemy import select
 from streamlit_cookies_controller import CookieController
 
 from api import load_dminusOne
-from database import Contract, Session, User
+from dbuser import Contract, Session, User
 from feedback import salvar_feedback
 from log import salvar_log_no_sqlite
 
@@ -89,15 +90,12 @@ cookie_controller = CookieController()
 
 def obter_validade() -> datetime:
     """Retorna o tempo de expiração para o cookie."""
-    return datetime.now() + timedelta(minutes=30)
+    return datetime.now(ZoneInfo("America/Sao_Paulo")) + timedelta(minutes=30)
 
 
 def logout():
-    try:
-        cookie_controller.remove("session_token")
-        logger.info(f"Usuário deslogado: {st.session_state.get('email')}")
-    except Exception:
-        pass
+    cookie_controller.remove("session_token")
+    logger.info(f"Usuário deslogado: {st.session_state.get('email')}")
     st.session_state.clear()
     time.sleep(2)
     st.rerun()
@@ -185,85 +183,79 @@ if "logged_in" not in st.session_state:
     with c2:
         # LOGIN DE USUÁRIOS EXISTENTES
         t1, t2 = st.tabs(["Acessar", "Registar"])
-        with t1:
-            with st.form("login_form"):
-                email = st.text_input("E-mail", icon="📧").strip().lower()
-                passwd = st.text_input("Senha", type="password", icon="🔐")
-                if st.form_submit_button("Entrar"):
-                    if email and passwd:
-                        with Session() as session:
-                            stmt = select(User).where(User.email == email)
-                            user_ref = session.execute(stmt).scalar_one_or_none()
-                            if user_ref is None:
-                                st.error("Utilizador não encontrado!")
-                                logger.error(
-                                    f"Falha de login: email {email} não encontrado."
+        with t1, st.form("login_form"):
+            email = st.text_input("E-mail", icon="📧").strip().lower()
+            passwd = st.text_input("Senha", type="password", icon="🔐")
+            if st.form_submit_button("Entrar"):
+                if email and passwd:
+                    with Session() as session:
+                        stmt = select(User).where(User.email == email)
+                        user_ref = session.execute(stmt).scalar_one_or_none()
+                        if user_ref is None:
+                            st.error("Utilizador não encontrado!")
+                            logger.error(
+                                f"Falha de login: email {email} não encontrado."
+                            )
+                        else:
+                            if not user_ref.approved:
+                                st.warning(
+                                    "O seu acesso ainda está pendente de aprovação."
+                                )
+                                logger.warning(
+                                    f"Login pendente: {email} ainda não aprovado."
                                 )
                             else:
-                                if not user_ref.approved:
-                                    st.warning(
-                                        "O seu acesso ainda está pendente de aprovação."
-                                    )
-                                    logger.warning(
-                                        f"Login pendente: {email} ainda não aprovado."
+                                senha_hash = user_ref.password.encode("utf-8")
+                                if bcrypt.checkpw(passwd.encode("utf-8"), senha_hash):
+                                    confirm_login(
+                                        user_ref.name,
+                                        user_ref.email,
+                                        user_ref.role,
+                                        user_ref.contract_rel.name,
                                     )
                                 else:
-                                    senha_hash = user_ref.password.encode("utf-8")
-                                    if bcrypt.checkpw(
-                                        passwd.encode("utf-8"), senha_hash
-                                    ):
-                                        confirm_login(
-                                            user_ref.name,
-                                            user_ref.email,
-                                            user_ref.role,
-                                            user_ref.contract_rel.name,
-                                        )
-                                    else:
-                                        st.error("Senha incorreta!")
-                                        logger.error(
-                                            f"Falha de login: senha incorreta para o email {email}."
-                                        )
-                    else:
-                        st.warning("Preencha todos os campos.")
-        with t2:
-            # CADASTRAMENTO DE NOVOS USUÁRIOS NO SISTEMA
-            with st.form("reg_form"):
-                name = st.text_input("Nome", icon="👤").strip()
-                email = st.text_input("Email", icon="📧").strip()
-                contract = st.selectbox("Área", CONTRATOS_VALIDOS)
-                passwd = st.text_input("Senha", type="password", icon="🔐")
-                hashed = bcrypt.hashpw(passwd.encode("utf-8"), bcrypt.gensalt())
-                if st.form_submit_button("Solicitar Acesso"):
-                    if name and email and passwd:
-                        with Session() as session:
-                            stmt = select(User.email).where(User.email == email)
-                            stmt_contract = select(Contract.id_contract).where(
-                                Contract.name == contract
-                            )
-                            id_contract = session.execute(
-                                stmt_contract
-                            ).scalar_one_or_none()
-                            if session.execute(stmt).scalar_one_or_none() is None:
-                                user = User(
-                                    name=name,
-                                    email=email,
-                                    contract=id_contract,
-                                    password=hashed.decode("utf-8"),
-                                )
-                                session.add(user)
-                                session.commit()
-                            else:
-                                st.error("O utilizador já existe!")
-                                logger.error(
-                                    f"Falha no registro: email {email} já existe."
-                                )
+                                    st.error("Senha incorreta!")
+                                    logger.error(
+                                        f"Falha de login: senha incorreta para o email {email}."
+                                    )
+                else:
+                    st.warning("Preencha todos os campos.")
 
-                            st.success("Solicitação enviada. Aguarde libertação.")
-                            logger.info(
-                                f"Novo registro: {email} solicitou acesso ao contrato {contract}."
+        with t2, st.form("reg_form"):
+            name = st.text_input("Nome", icon="👤").strip()
+            email = st.text_input("Email", icon="📧").strip()
+            contract = st.selectbox("Área", CONTRATOS_VALIDOS)
+            passwd = st.text_input("Senha", type="password", icon="🔐")
+            hashed = bcrypt.hashpw(passwd.encode("utf-8"), bcrypt.gensalt())
+            if st.form_submit_button("Solicitar Acesso"):
+                if name and email and passwd:
+                    with Session() as session:
+                        stmt = select(User.email).where(User.email == email)
+                        stmt_contract = select(Contract.id_contract).where(
+                            Contract.name == contract
+                        )
+                        id_contract = session.execute(
+                            stmt_contract
+                        ).scalar_one_or_none()
+                        if session.execute(stmt).scalar_one_or_none() is None:
+                            user = User(
+                                name=name,
+                                email=email,
+                                contract=id_contract,
+                                password=hashed.decode("utf-8"),
                             )
-                    else:
-                        st.error("Preencha todos os campos.")
+                            session.add(user)
+                            session.commit()
+                        else:
+                            st.error("O utilizador já existe!")
+                            logger.error(f"Falha no registro: email {email} já existe.")
+
+                        st.success("Solicitação enviada. Aguarde libertação.")
+                        logger.info(
+                            f"Novo registro: {email} solicitou acesso ao contrato {contract}."
+                        )
+                else:
+                    st.error("Preencha todos os campos.")
     st.stop()
 
 else:
@@ -309,7 +301,7 @@ else:
         unsafe_allow_html=True,
     )
 
-    hora_atual = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%H:%M")
+    hora_atual = (datetime.now(UTC) - timedelta(hours=3)).strftime("%H:%M")
     st.markdown(
         f"""<div class="sigma-header">
                 <div class="sigma-title">
@@ -337,59 +329,54 @@ else:
         placeholder = st.empty()
 
         if st.session_state.mostrar_form_senha:
-            with placeholder.container():
-                with st.form("change_pass_form"):
-                    current_pass = st.text_input("Senha Atual", type="password")
-                    new_pass = st.text_input("Nova Senha", type="password")
-                    confirm_pass = st.text_input(
-                        "Confirmar Nova Senha", type="password"
-                    )
+            with placeholder.container(), st.form("change_pass_form"):
+                current_pass = st.text_input("Senha Atual", type="password")
+                new_pass = st.text_input("Nova Senha", type="password")
+                confirm_pass = st.text_input("Confirmar Nova Senha", type="password")
 
-                    col1, col2 = st.columns(2)
+                col1, col2 = st.columns(2)
 
-                    with col1:
-                        btn_atualizar = st.form_submit_button("Atualizar")
-                    with col2:
-                        btn_cancelar = st.form_submit_button("Cancelar")
+                with col1:
+                    btn_atualizar = st.form_submit_button("Atualizar")
+                with col2:
+                    btn_cancelar = st.form_submit_button("Cancelar")
 
-                    if btn_atualizar:
-                        if not current_pass or not new_pass or not confirm_pass:
-                            st.error("Preencha todos os campos.")
-                        elif new_pass != confirm_pass:
-                            st.error("As novas senhas não coincidem.")
-                        else:
-                            with Session() as session:
-                                user_email = st.session_state.get("email")
-                                stmt = select(User).where(User.email == user_email)
-                                CurrentUser = session.execute(stmt).scalar_one_or_none()
+                if btn_atualizar:
+                    if not current_pass or not new_pass or not confirm_pass:
+                        st.error("Preencha todos os campos.")
+                    elif new_pass != confirm_pass:
+                        st.error("As novas senhas não coincidem.")
+                    else:
+                        with Session() as session:
+                            user_email = st.session_state.get("email")
+                            stmt = select(User).where(User.email == user_email)
+                            CurrentUser = session.execute(stmt).scalar_one_or_none()
 
-                                if CurrentUser:
-                                    user_hash = CurrentUser.password
-                                    if bcrypt.checkpw(
-                                        current_pass.encode("utf-8"),
-                                        user_hash.encode("utf-8"),
-                                    ):
-                                        new_hashed = bcrypt.hashpw(
-                                            new_pass.encode("utf-8"), bcrypt.gensalt()
-                                        )
-                                        CurrentUser.password = new_hashed.decode(
-                                            "utf-8"
-                                        )
-                                        session.commit()
-                                        st.success(
-                                            "Senha atualizada com sucesso!", icon="✅"
-                                        )
-                                        logger.info(
-                                            f"Senha atualizada para o usuário {user_email}."
-                                        )
-                                        time.sleep(2)
-                                        st.session_state.mostrar_form_senha = False
-                                        placeholder.empty()
-                                    else:
-                                        st.error("Senha atual incorreta.")
-                    if btn_cancelar:
-                        st.session_state.mostrar_form_senha = False
-                        placeholder.empty()
+                            if CurrentUser:
+                                user_hash = CurrentUser.password
+                                if bcrypt.checkpw(
+                                    current_pass.encode("utf-8"),
+                                    user_hash.encode("utf-8"),
+                                ):
+                                    new_hashed = bcrypt.hashpw(
+                                        new_pass.encode("utf-8"), bcrypt.gensalt()
+                                    )
+                                    CurrentUser.password = new_hashed.decode("utf-8")
+                                    session.commit()
+                                    st.success(
+                                        "Senha atualizada com sucesso!", icon="✅"
+                                    )
+                                    logger.info(
+                                        f"Senha atualizada para o usuário {user_email}."
+                                    )
+                                    time.sleep(2)
+                                    st.session_state.mostrar_form_senha = False
+                                    placeholder.empty()
+                                else:
+                                    st.error("Senha atual incorreta.")
+                if btn_cancelar:
+                    st.session_state.mostrar_form_senha = False
+                    placeholder.empty()
 
         if CONTRATO:
             st.markdown(f"📍 **{CONTRATO}**")
@@ -452,13 +439,13 @@ else:
             try:
                 response = requests.get(API_URL, timeout=25)
                 if response.status_code == 200:
-                    data = response.json()  # response api
+                    data = response.json()
                     if "ocorrencias" in data:
                         df_api = pd.DataFrame(data["ocorrencias"])
                 else:
                     erro_msg = f"Erro API: {response.status_code}"
             except Exception as e:
-                logger.error(f"Erro ao carregar dados da API: {str(e)}")
+                logger.error(f"Erro ao carregar dados da API: {e!s}")
                 erro_msg = str(e)
 
         if df_api.empty:
@@ -562,7 +549,7 @@ else:
                 return response.json(), None
             return None, f"Erro {response.status_code}"
         except Exception as e:
-            logger.error(f"Erro ao carregar dados de ofensores: {str(e)}")
+            logger.error(f"Erro ao carregar dados de ofensores: {e!s}")
             return None, str(e)
 
     def processar_json_ofensores(
@@ -652,23 +639,19 @@ else:
                             .sum()
                             .to_dict()
                         )
-                        print(
-                            f"🚀 Sucesso! Dicionário criado com {len(dict_share)} ATs."
-                        )
+                        print(f"Sucesso! Dicionário criado com {len(dict_share)} ATs.")
                         return dict_share
                     else:
-                        print(
-                            f"❌ Aviso: O ficheiro {file} não tem as colunas corretas."
-                        )
+                        print(f"Aviso: O ficheiro {file} não tem as colunas corretas.")
                 except Exception as e:
-                    print(f"❌ Erro ao ler {file}: {str(e)}")
+                    print(f"Erro ao ler {file}: {e!s}")
                     continue
 
         print("--- FIM: NENHUM FICHEIRO VÁLIDO ENCONTRADO ---")
         return {}
 
     def processar_dados(df_raw, filtros_contrato):
-        agora = datetime.now().replace(tzinfo=None)
+        agora = datetime.now(ZoneInfo("America/Sao_Paulo")).replace(tzinfo=None)
 
         df = df_raw.copy()
 
@@ -848,7 +831,7 @@ else:
         ax.text(
             50,
             92,
-            f"{contrato} • {datetime.now().strftime('%H:%M')}",
+            f"{contrato} • {datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%H:%M')}",
             ha="center",
             size=22,
             weight="bold",
@@ -915,9 +898,7 @@ else:
             ax.axis("off")
             fig.patch.set_facecolor("white")
 
-            titulo = (
-                f"SIGMA OPS: {contrato}\n{datetime.now().strftime('%d/%m • %H:%M')}"
-            )
+            titulo = f"SIGMA OPS: {contrato}\n{datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m • %H:%M')}"
             if num_paginas > 1:
                 titulo += f" (Pág {i + 1}/{num_paginas})"
 
@@ -1006,7 +987,7 @@ else:
         ax.axis("off")
         fig.patch.set_facecolor("white")
 
-        hora = datetime.now().strftime("%d/%m • %H:%M")
+        hora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m • %H:%M")
         plt.title(
             f"VISÃO CLUSTER\nConsolidado SigmaOPS • {hora}",
             loc="center",
@@ -1156,7 +1137,7 @@ else:
             data=dados_calor, radius=raio_calor, max_zoom=13, min_opacity=opacidade
         ).add_to(mapa)
 
-        st_folium(mapa, width="70%", height=400)
+        st_folium(mapa, height=400)
 
         # --- ABA OPERACIONAL ---
         with tab_op:
@@ -1174,7 +1155,7 @@ else:
                     )
             with c_ref:
                 if st.button("🔄 Atualizar", width="stretch"):
-                    carregar_dados_api.clear()
+                    carregar_dados_api.clear(carregar_dados_api)
                     st.rerun()
 
             df_view = processar_dados(df_raw, contrato_atual)
