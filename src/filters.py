@@ -2,8 +2,8 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from src.database.mapeamento import OcorrenciaTxt as oc
-from src.database.models import get_session
+from persistence.models.entities import OcorrenciaTxt as oc
+from persistence.database import get_session
 
 
 def filter(
@@ -36,14 +36,16 @@ def filter(
     if data_hora_limite_inferior:
         stmt = stmt.where(oc.data_ocorrencia_final >= data_hora_limite_inferior)
     if data_hora_limite_superior:
-            stmt = stmt.where(oc.data_ocorrencia_final <= data_hora_limite_superior)
+        stmt = stmt.where(oc.data_ocorrencia_final <= data_hora_limite_superior)
     with get_session() as session:
         result = session.execute(stmt).mappings().all()
         payload = []
 
         for item in result:
             process = {**item}
-            process['data_ocorrencia_final'] = process['data_ocorrencia_final'].strftime("%d/%m/%Y %H:%M:%S")
+            process["data_ocorrencia_final"] = process[
+                "data_ocorrencia_final"
+            ].strftime("%d/%m/%Y %H:%M:%S")
             payload.append(process)
 
         return payload

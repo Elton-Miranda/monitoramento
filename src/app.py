@@ -4,32 +4,41 @@ import os
 import sys
 import time
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import bcrypt
+import folium
+
+# import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
+
+# from folium.plugins import HeatMap
 from loguru import logger
 from matplotlib import patches
 from sqlalchemy import select
 from streamlit_cookies_controller import CookieController
+from streamlit_folium import st_folium
 
-from api import load_dminusOne
-from dbuser import Contract, Session, User
-from feedback import salvar_feedback
-from log import salvar_log_no_sqlite
+from application.use_cases import reports
+from application.use_cases.user import (
+    atualizar_senha,
+    cadastrar_novo_usuario,
+    logar_usuario,
+    obter_usuario_por_email,
+)
+from infrastructure.api import load_dminusOne
+from persistence.database import get_session
+from persistence.models import User
 
 # Versão do SigmaOPS
-version = "1.4.5"
+version = "1.4.6"
 
 
 @st.cache_resource
 def init_logger():
     logger.remove()
     logger.add(sys.stderr, level="DEBUG")
-    logger.add(salvar_log_no_sqlite, level="INFO")
 
 
 init_logger()
@@ -93,42 +102,35 @@ def obter_validade() -> datetime:
     return datetime.now(ZoneInfo("America/Sao_Paulo")) + timedelta(minutes=30)
 
 
-def logout():
+def logout() -> None:
     cookie_controller.remove("session_token")
-    logger.info(f"Usuário deslogado: {st.session_state.get('email')}")
     st.session_state.clear()
     time.sleep(2)
     st.rerun()
 
 
-def confirm_login(
-    user_name: str, email: str, role: str, contract: str | list[str]
-) -> None:
+def login(user: User) -> None:
     """Atualiza o estado de sessão para refletir o login bem-sucedido e recarrega a aplicação."""
-    if isinstance(contract, list):
-        default = contract[0]
+    if user.contract == "MASTER":
+        default = "ABILITY_SJ"
     else:
-        if contract == "MASTER":
-            default = "ABILITY_SJ"
-        else:
-            default = contract
+        default = user.contract
 
     st.session_state.update(
         {
             "logged_in": True,
-            "username": user_name,
-            "email": email,
-            "role": role,
-            "allowed_contract": contract,
+            "username": user.name,
+            "email": user.email,
+            "role": user.role,
+            "allowed_contract": user.contract,
             "contract": default,
         }
     )
     cookie_controller.set(
         "session_token",
-        email,
+        user.email,
         expires=obter_validade(),
     )
-    logger.info(f"Login bem-sucedido: {email} | Contrato: {contract} | Perfil: {role}")
     st.rerun()
 
 
@@ -137,25 +139,16 @@ def atualizar_contrato_callback():
 
 
 cookie_session = cookie_controller.get("session_token")
-logger.debug(f"cookie info: {cookie_session}")
 
-if cookie_session:
+if cookie_session is not None:
     if "logged_in" not in st.session_state:
-        with Session() as conn:
-            stmt = select(User).where(User.email == cookie_session)
-            user = conn.execute(stmt).scalar_one_or_none()
-            if user:
-                st.session_state.logged_in = True
-                confirm_login(user.name, user.email, user.role, user.contract_rel.name)
+        try:
+            login(obter_usuario_por_email(cookie_session))
+        except ValueError as e:
+            st.error(e)
 
-    # RENOVAÇÃO AUTOMÁTICA: O usuário agiu na página, gera um novo tempo
     nova_validade = obter_validade()
-
-    # Sobrescreve o cookie atualizando a validade para mais 30 minutos
     cookie_controller.set("session_token", cookie_session, expires=nova_validade)
-    logger.debug("cookie atualizado")
-else:
-    logger.debug("cookie não encontrado")
 
 
 if "logged_in" not in st.session_state:
@@ -179,92 +172,46 @@ if "logged_in" not in st.session_state:
         unsafe_allow_html=True,
     )
 
-    c1, c2, c3 = st.columns([1, 1.2, 1])
-    with c2:
+    c1, container_cad_login, c3 = st.columns([1, 1.2, 1])
+    with container_cad_login:
+        aba_login, aba_cadastro = st.tabs(["Acessar", "Registar"])
+
         # LOGIN DE USUÁRIOS EXISTENTES
-        t1, t2 = st.tabs(["Acessar", "Registar"])
-        with t1, st.form("login_form"):
+        with aba_login, st.form("login_form"):
             email = st.text_input("E-mail", icon="📧").strip().lower()
-            passwd = st.text_input("Senha", type="password", icon="🔐")
+            senha = st.text_input("Senha", type="password", icon="🔐").strip()
             if st.form_submit_button("Entrar"):
-                if email and passwd:
-                    with Session() as session:
-                        stmt = select(User).where(User.email == email)
-                        user_ref = session.execute(stmt).scalar_one_or_none()
-                        if user_ref is None:
-                            st.error("Utilizador não encontrado!")
-                            logger.error(
-                                f"Falha de login: email {email} não encontrado."
-                            )
-                        else:
-                            if not user_ref.approved:
-                                st.warning(
-                                    "O seu acesso ainda está pendente de aprovação."
-                                )
-                                logger.warning(
-                                    f"Login pendente: {email} ainda não aprovado."
-                                )
-                            else:
-                                senha_hash = user_ref.password.encode("utf-8")
-                                if bcrypt.checkpw(passwd.encode("utf-8"), senha_hash):
-                                    confirm_login(
-                                        user_ref.name,
-                                        user_ref.email,
-                                        user_ref.role,
-                                        user_ref.contract_rel.name,
-                                    )
-                                else:
-                                    st.error("Senha incorreta!")
-                                    logger.error(
-                                        f"Falha de login: senha incorreta para o email {email}."
-                                    )
-                else:
-                    st.warning("Preencha todos os campos.")
+                try:
+                    if email and senha:
+                        user = logar_usuario(email, senha)
+                        login(user)
+                    else:
+                        st.warning("Preencha todos os campos")
+                except ValueError as e:
+                    st.error(e)
 
-        with t2, st.form("reg_form"):
-            name = st.text_input("Nome", icon="👤").strip()
+        # CADASTRO DE NOVOS USUÁRIOS
+        with aba_cadastro, st.form("reg_form"):
+            nome = st.text_input("Nome", icon="👤").strip()
             email = st.text_input("Email", icon="📧").strip()
-            contract = st.selectbox("Área", CONTRATOS_VALIDOS)
-            passwd = st.text_input("Senha", type="password", icon="🔐")
-            hashed = bcrypt.hashpw(passwd.encode("utf-8"), bcrypt.gensalt())
-            if st.form_submit_button("Solicitar Acesso"):
-                if name and email and passwd:
-                    with Session() as session:
-                        stmt = select(User.email).where(User.email == email)
-                        stmt_contract = select(Contract.id_contract).where(
-                            Contract.name == contract
-                        )
-                        id_contract = session.execute(
-                            stmt_contract
-                        ).scalar_one_or_none()
-                        if session.execute(stmt).scalar_one_or_none() is None:
-                            user = User(
-                                name=name,
-                                email=email,
-                                contract=id_contract,
-                                password=hashed.decode("utf-8"),
-                            )
-                            session.add(user)
-                            session.commit()
-                        else:
-                            st.error("O utilizador já existe!")
-                            logger.error(f"Falha no registro: email {email} já existe.")
+            contrato = st.selectbox("Área", CONTRATOS_VALIDOS)
+            senha = st.text_input("Senha", type="password", icon="🔐")
 
-                        st.success("Solicitação enviada. Aguarde libertação.")
-                        logger.info(
-                            f"Novo registro: {email} solicitou acesso ao contrato {contract}."
-                        )
-                else:
-                    st.error("Preencha todos os campos.")
+            if st.form_submit_button("Solicitar Acesso"):
+                try:
+                    cadastrar_novo_usuario(nome, email, contrato, senha)
+                    st.success("Solicitação enviada. Aguarde libertação.")
+                except ValueError as e:
+                    st.error(e)
+
     st.stop()
 
+# APLICAÇÃO PRINCIPAL
 else:
-    # ==============================================================================
-    # 🚀 APLICAÇÃO PRINCIPAL
-    # ==============================================================================
     USUARIO = st.session_state["username"]
     PERFIL = st.session_state["role"]
-    CONTRATO = st.session_state["allowed_contract"]
+    CONTRATOS = st.session_state["allowed_contract"]
+    hora_atual = (datetime.now(UTC) - timedelta(hours=3)).strftime("%H:%M")
 
     # --- ESTILOS CSS ---
     st.markdown(
@@ -301,7 +248,6 @@ else:
         unsafe_allow_html=True,
     )
 
-    hora_atual = (datetime.now(UTC) - timedelta(hours=3)).strftime("%H:%M")
     st.markdown(
         f"""<div class="sigma-header">
                 <div class="sigma-title">
@@ -330,61 +276,48 @@ else:
 
         if st.session_state.mostrar_form_senha:
             with placeholder.container(), st.form("change_pass_form"):
-                current_pass = st.text_input("Senha Atual", type="password")
-                new_pass = st.text_input("Nova Senha", type="password")
-                confirm_pass = st.text_input("Confirmar Nova Senha", type="password")
+                senha_atual = st.text_input("Senha Atual", type="password")
+                nova_senha_1 = st.text_input("Nova Senha", type="password")
+                nova_senha_2 = st.text_input("Confirmar Nova Senha", type="password")
 
                 col1, col2 = st.columns(2)
 
                 with col1:
                     btn_atualizar = st.form_submit_button("Atualizar")
+
                 with col2:
                     btn_cancelar = st.form_submit_button("Cancelar")
 
                 if btn_atualizar:
-                    if not current_pass or not new_pass or not confirm_pass:
+                    if not senha_atual or not nova_senha_1 or not nova_senha_2:
                         st.error("Preencha todos os campos.")
-                    elif new_pass != confirm_pass:
-                        st.error("As novas senhas não coincidem.")
-                    else:
-                        with Session() as session:
-                            user_email = st.session_state.get("email")
-                            stmt = select(User).where(User.email == user_email)
-                            CurrentUser = session.execute(stmt).scalar_one_or_none()
 
-                            if CurrentUser:
-                                user_hash = CurrentUser.password
-                                if bcrypt.checkpw(
-                                    current_pass.encode("utf-8"),
-                                    user_hash.encode("utf-8"),
-                                ):
-                                    new_hashed = bcrypt.hashpw(
-                                        new_pass.encode("utf-8"), bcrypt.gensalt()
-                                    )
-                                    CurrentUser.password = new_hashed.decode("utf-8")
-                                    session.commit()
-                                    st.success(
-                                        "Senha atualizada com sucesso!", icon="✅"
-                                    )
-                                    logger.info(
-                                        f"Senha atualizada para o usuário {user_email}."
-                                    )
-                                    time.sleep(2)
-                                    st.session_state.mostrar_form_senha = False
-                                    placeholder.empty()
-                                else:
-                                    st.error("Senha atual incorreta.")
+                    elif nova_senha_1 != nova_senha_2:
+                        st.error("As novas senhas não coincidem.")
+
+                    else:
+                        try:
+                            email = st.session_state.get("email")
+                            atualizar_senha(email, senha_atual, nova_senha_1)
+                            st.success("Senha atualizada com sucesso!", icon="✅")
+                            time.sleep(2)
+                            st.session_state.mostrar_form_senha = False
+                            placeholder.empty()
+
+                        except ValueError as e:
+                            st.error(e)
+
                 if btn_cancelar:
                     st.session_state.mostrar_form_senha = False
                     placeholder.empty()
 
-        if CONTRATO:
-            st.markdown(f"📍 **{CONTRATO}**")
+        if CONTRATOS:
+            st.markdown(f"📍 **{CONTRATOS}**")
 
         if PERFIL in ["master", "admin"]:
             st.divider()
             st.markdown("#### 🛡️ Aprovação de Acessos")
-            with Session() as session:
+            with get_session() as session:
                 stmt = select(User).where(User.approved == False)
                 users_pendent_approves = session.execute(stmt).mappings().all()
                 if users_pendent_approves:
@@ -392,29 +325,27 @@ else:
                     for user in users_pendent_approves:
                         row = user.get("User", {})
                         with st.container(border=True):
-                            st.markdown(f"**{row.name}** | {row.contract_rel.name}")
+                            st.markdown(f"**{row.name}** | {row.contract}")
                             r_sel = st.selectbox(
                                 "Perfil:",
                                 ["user", "admin"],
-                                key=f"r_{row.id_user}",
+                                key=f"r_{row.id}",
                                 label_visibility="collapsed",
                             )
-                            c1, c2 = st.columns(2)
+                            c1, container_cad_login = st.columns(2)
                             if c1.button(
-                                "✅ Aprovar", key=f"y_{row.id_user}", width="stretch"
+                                "✅ Aprovar", key=f"y_{row.id}", width="stretch"
                             ):
                                 row.approved = True
                                 session.commit()
-                                logger.info(f"Utilizador aprovado: {row.name}")
                                 st.toast(f"Utilizador {row.name} aprovado!")
                                 time.sleep(1)
                                 st.rerun()
-                            if c2.button(
-                                "❌ Recusar", key=f"n_{row.id_user}", width="stretch"
+                            if container_cad_login.button(
+                                "❌ Recusar", key=f"n_{row.id}", width="stretch"
                             ):
                                 session.delete(row)
                                 session.commit()
-                                logger.info(f"Utilizador removido: {row.name}")
                                 st.toast(f"Utilizador {row.name} removido!")
                                 time.sleep(1)
                                 st.rerun()
@@ -440,6 +371,7 @@ else:
                 response = requests.get(API_URL, timeout=25)
                 if response.status_code == 200:
                     data = response.json()
+                    logger.info(data["ocorrencias"][0].keys())
                     if "ocorrencias" in data:
                         df_api = pd.DataFrame(data["ocorrencias"])
                 else:
@@ -502,6 +434,7 @@ else:
         df_api["Abertura_dt"] = pd.to_datetime(df_api["Abertura"], errors="coerce")
 
         if "Técnicos" in df_api.columns:
+            logger.info("rodei")
             df_api["Técnicos"] = df_api["Técnicos"].apply(
                 lambda x: len(x) if isinstance(x, list) else 0
             )
@@ -529,6 +462,8 @@ else:
         if "municipio" in df_api.columns:
             df_api.rename(columns={"municipio": "Cidade_Real"}, inplace=True)
 
+        logger.info(df_api.columns)
+
         return df_api, None
 
     @st.cache_data(ttl=300, show_spinner=False)
@@ -545,7 +480,6 @@ else:
             )
 
             if response.status_code == 200:
-                logger.debug(f"{len(response.json())} primárias encontradas.")
                 return response.json(), None
             return None, f"Erro {response.status_code}"
         except Exception as e:
@@ -559,9 +493,13 @@ else:
         linhas = []
 
         for item in dados_json:
-            if at_sel is not None and isinstance(at_sel, list) and at_sel != [""]:
-                if item.get("ocorrencias")[0].get("at") not in at_sel:
-                    continue
+            if (
+                at_sel is not None
+                and isinstance(at_sel, list)
+                and at_sel != [""]
+                and item.get("ocorrencias")[0].get("at") not in at_sel
+            ):
+                continue
             cod_primaria = item.get("primaria", "")
             volume = item.get("count", 0)
             linhas.append(
@@ -584,71 +522,6 @@ else:
             )
 
         return pd.DataFrame()
-
-    def carregar_base_share():
-        print("\n--- INÍCIO DA LEITURA DO SHARE ---")
-        file_options = [
-            "share_at_sj.csv",
-            "SHARE_AT_SJ.csv",
-            "SHARE_AT_SJC_JAI.xlsx",
-            "SHARE_AT_SJC_JAI.xlsx - SHARE_AT_SJ.csv",
-            "SHARE_AT_SJC_JAI.xlsx - SHARE_AT _JAI.csv",
-        ]
-
-        for file in file_options:
-            filepath = Path.cwd().joinpath(file)
-            st.markdown(filepath)
-            if os.path.exists(filepath):
-                print(f"⏳ Ficheiro encontrado: {file}. A tentar ler...")
-                try:
-                    if file.endswith(".xlsx"):
-                        df = pd.read_excel(filepath)
-                    else:
-                        df = pd.read_csv(filepath, sep=";")
-
-                    print(
-                        f"✅ Ficheiro {file} lido com sucesso. Linhas totais: {len(df)}"
-                    )
-                    df.columns = df.columns.str.strip()
-
-                    if (
-                        "nom_AreaTelefonica" in df.columns
-                        and "qtd_Acessos" in df.columns
-                    ):
-                        print(
-                            "⚙️ Colunas corretas encontradas. A processar matemática..."
-                        )
-                        df = df.dropna(
-                            subset=["num_MesAno", "nom_AreaTelefonica", "qtd_Acessos"]
-                        )
-
-                        df["num_MesAno"] = (
-                            df["num_MesAno"].astype(float).astype(int).astype(str)
-                        )
-                        df["year"] = df["num_MesAno"].str[-4:].astype(int)
-                        df["month"] = df["num_MesAno"].str[:-4].astype(int)
-                        df["date"] = pd.to_datetime(
-                            {"year": df["year"], "month": df["month"], "day": 1}
-                        )
-
-                        latest_date = df["date"].max()
-                        df_latest = df[df["date"] == latest_date]
-
-                        dict_share = (
-                            df_latest.groupby("nom_AreaTelefonica")["qtd_Acessos"]
-                            .sum()
-                            .to_dict()
-                        )
-                        print(f"Sucesso! Dicionário criado com {len(dict_share)} ATs.")
-                        return dict_share
-                    else:
-                        print(f"Aviso: O ficheiro {file} não tem as colunas corretas.")
-                except Exception as e:
-                    print(f"Erro ao ler {file}: {e!s}")
-                    continue
-
-        print("--- FIM: NENHUM FICHEIRO VÁLIDO ENCONTRADO ---")
-        return {}
 
     def processar_dados(df_raw, filtros_contrato):
         agora = datetime.now(ZoneInfo("America/Sao_Paulo")).replace(tzinfo=None)
@@ -1041,14 +914,14 @@ else:
 
         # --- ABA INFO DE PRIMÁRIA
         with tab_prim:
-            from api import primary_search
+            from infrastructure.orm_api import primary_search
 
-            col1, col2 = st.columns([4, 1])
+            col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
 
             with col1:
                 if st.text_input(
                     "Pesquisar",
-                    placeholder="AT ou CNL ou CABO ou PRIMÁRIA ou combinação de ambos e % como coringa.",
+                    placeholder="CNL ou AT",
                     key="primary_search",
                     label_visibility="collapsed",
                     icon="🔍",
@@ -1056,6 +929,33 @@ else:
                     pass
 
             with col2:
+                if st.text_input(
+                    "txt_cabo",
+                    key="txt_cabo",
+                    placeholder="CABO",
+                    label_visibility="collapsed",
+                ):
+                    pass
+
+            with col3:
+                if st.text_input(
+                    "txt_primaria",
+                    key="txt_primaria",
+                    placeholder="PRIMÁRIA",
+                    label_visibility="collapsed",
+                ):
+                    pass
+
+            with col4:
+                if st.text_input(
+                    "txt_municipio",
+                    key="txt_municipio",
+                    placeholder="MUNICÍPIO",
+                    label_visibility="collapsed",
+                ):
+                    pass
+
+            with col5:
                 if st.button("Pesquisar", width="stretch"):
                     st.rerun()
 
@@ -1064,8 +964,13 @@ else:
 
             if st.session_state["primary_search"]:
                 try:
-                    df = primary_search(st.session_state["primary_search"])
-                    if not df.empty:
+                    df = primary_search(
+                        st.session_state["primary_search"],
+                        st.session_state["txt_cabo"],
+                        st.session_state["txt_primaria"],
+                        st.session_state["txt_municipio"],
+                    )
+                    if df.height > 0:
                         st.dataframe(
                             df,
                             width="stretch",
@@ -1093,59 +998,55 @@ else:
 
         # --- ABA MAPS ---
 
-        import folium
-        import numpy as np
-        from folium.plugins import HeatMap
-        from streamlit_folium import st_folium
+        with tab_map:
+            # @st.cache_data
+            # def gerar_dados():
+            #     base_lat, base_lon = -23.5505, -46.6333  # São Paulo
+            #     num_pontos = 50
 
-        @st.cache_data
-        def gerar_dados():
-            base_lat, base_lon = -23.5505, -46.6333  # São Paulo
-            num_pontos = 50
+            #     lats = base_lat + np.random.uniform(-0.1, 0.1, num_pontos)
+            #     lons = base_lon + np.random.uniform(-0.1, 0.1, num_pontos)
+            #     intensidades = np.random.uniform(0.1, 1.0, num_pontos)  # Peso do calor
 
-            lats = base_lat + np.random.uniform(-0.1, 0.1, num_pontos)
-            lons = base_lon + np.random.uniform(-0.1, 0.1, num_pontos)
-            intensidades = np.random.uniform(0.1, 1.0, num_pontos)  # Peso do calor
+            #     df = pd.DataFrame(
+            #         {"latitude": lats, "longitude": lons, "peso": intensidades}
+            #     )
+            #     return df
 
-            df = pd.DataFrame(
-                {"latitude": lats, "longitude": lons, "peso": intensidades}
+            # df_dados = gerar_dados()
+
+            # 2. Controles na barra lateral do Streamlit
+            # st.sidebar.header("Configurações do Mapa")
+            # raio_calor = st.sidebar.slider(
+            #     "Raio do Ponto de Calor", min_value=5, max_value=30, value=15
+            # )
+
+            # opacidade = st.sidebar.slider(
+            #     "Opacidade", min_value=0.1, max_value=1.0, value=0.6
+            # )
+
+            # 3. Criar o mapa base Leaflet (centralizado em SP)
+            mapa = folium.Map(
+                location=[-23.5505, -46.6333], zoom_start=11, tiles="OpenStreetMap"
             )
-            return df
 
-        df_dados = gerar_dados()
+            # 4. Preparar os dados para o plugin HeatMap do Leaflet
+            # dados_calor = df_dados[["latitude", "longitude", "peso"]].values.tolist()
 
-        # 2. Controles na barra lateral do Streamlit
-        st.sidebar.header("Configurações do Mapa")
-        raio_calor = st.sidebar.slider(
-            "Raio do Ponto de Calor", min_value=5, max_value=30, value=15
-        )
+            # # 5. Adicionar o mapa de calor ao mapa base
+            # HeatMap(
+            #     data=dados_calor, radius=raio_calor, max_zoom=13, min_opacity=opacidade
+            # ).add_to(mapa)
 
-        opacidade = st.sidebar.slider(
-            "Opacidade", min_value=0.1, max_value=1.0, value=0.6
-        )
-
-        # 3. Criar o mapa base Leaflet (centralizado em SP)
-        mapa = folium.Map(
-            location=[-23.5505, -46.6333], zoom_start=11, tiles="OpenStreetMap"
-        )
-
-        # 4. Preparar os dados para o plugin HeatMap do Leaflet
-        dados_calor = df_dados[["latitude", "longitude", "peso"]].values.tolist()
-
-        # 5. Adicionar o mapa de calor ao mapa base
-        HeatMap(
-            data=dados_calor, radius=raio_calor, max_zoom=13, min_opacity=opacidade
-        ).add_to(mapa)
-
-        st_folium(mapa, height=400)
+            st_folium(mapa, use_container_width=True, height=400)
 
         # --- ABA OPERACIONAL ---
         with tab_op:
             c_sel, c_ref = st.columns([5, 1], gap="small")
             with c_sel:
-                if CONTRATO and PERFIL not in ["master", "admin"]:
-                    st.info(f"A visualizar: {CONTRATO}")
-                    contrato_atual = CONTRATO
+                if CONTRATOS and PERFIL not in ["master", "admin"]:
+                    st.info(f"A visualizar: {CONTRATOS}")
+                    contrato_atual = CONTRATOS
                 else:
                     contrato_atual = st.radio(
                         "Selecione o Contrato:",
@@ -1155,7 +1056,6 @@ else:
                     )
             with c_ref:
                 if st.button("🔄 Atualizar", width="stretch"):
-                    carregar_dados_api.clear(carregar_dados_api)
                     st.rerun()
 
             df_view = processar_dados(df_raw, contrato_atual)
@@ -1174,7 +1074,6 @@ else:
             # KPIs HTML
             t = len(df_view)
             dados = load_dminusOne(contrato_atual, API_URL_DMINUSONE)
-            logger.debug(f"retorno de dados d-1 {dados}")
             ocorrencias, prazo, reincidencia = 0, 0, 0
             if dados:
                 ocorrencias = dados.get("ocorrencias")
@@ -1225,7 +1124,7 @@ else:
                         st.code(gerar_texto_gv(row, contrato_atual), language="text")
 
             with st.expander("📂 Opções de Exportação"):
-                c1, c2 = st.columns(2)
+                c1, container_cad_login = st.columns(2)
                 try:
                     c1.download_button(
                         "Baixar Resumo",
@@ -1257,7 +1156,7 @@ else:
                     )
                     if imgs:
                         if len(imgs) == 1:
-                            c2.download_button(
+                            container_cad_login.download_button(
                                 "Baixar Lista",
                                 imgs[0],
                                 f"lista_{nome_arq}.jpg",
@@ -1266,7 +1165,7 @@ else:
                             )
                         else:
                             for idx_img, img_bytes in enumerate(imgs):
-                                c2.download_button(
+                                container_cad_login.download_button(
                                     f"Baixar Lista (Pág {idx_img + 1})",
                                     img_bytes,
                                     f"lista_{nome_arq}_p{idx_img + 1}.jpg",
@@ -1421,12 +1320,12 @@ else:
         if tab_cl:
             with tab_cl:
                 with st.form("form_cluster"):
-                    c1, c2 = st.columns([5, 1])
+                    c1, container_cad_login = st.columns([5, 1])
                     with c1:
                         sels = st.multiselect(
                             "Contratos:", CONTRATOS_VALIDOS, default=CONTRATOS_VALIDOS
                         )
-                    with c2:
+                    with container_cad_login:
                         st.write("")
                         st.write("")
                         st.form_submit_button("Atualizar Visão", width="stretch")
@@ -1509,8 +1408,8 @@ else:
             if "feedback_enviado" in st.session_state:
                 st.success("Obrigado pelo seu feedback!")
                 st.session_state.pop("feedback_enviado", None)
-                c1, c2, c3 = st.columns([2, 1, 2])
-                with c2:
+                c1, container_cad_login, c3 = st.columns([2, 1, 2])
+                with container_cad_login:
                     if st.button("Enviar outro feedback", width="stretch"):
                         st.rerun()
             else:
@@ -1537,10 +1436,7 @@ else:
                     if submit:
                         try:
                             if descricao.strip():
-                                salvar_feedback(tipo, descricao, contato)
-                                logger.info(
-                                    f"Novo feedback recebido - Tipo: {tipo}, Contato: {contato if contato else 'Não fornecido'}"
-                                )
+                                reports.save_feedback(tipo, descricao, contato)
                                 st.session_state["feedback_enviado"] = True
                                 st.rerun()
                             else:
