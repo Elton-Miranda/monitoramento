@@ -2,8 +2,8 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from persistence.models.entities import OcorrenciaTxt as oc
 from persistence.database import get_session
+from persistence.models.entities import OcorrenciaTxt as oc
 
 
 def filter(

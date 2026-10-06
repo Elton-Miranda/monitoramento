@@ -371,7 +371,6 @@ else:
                 response = requests.get(API_URL, timeout=25)
                 if response.status_code == 200:
                     data = response.json()
-                    logger.info(data["ocorrencias"][0].keys())
                     if "ocorrencias" in data:
                         df_api = pd.DataFrame(data["ocorrencias"])
                 else:
@@ -434,7 +433,6 @@ else:
         df_api["Abertura_dt"] = pd.to_datetime(df_api["Abertura"], errors="coerce")
 
         if "Técnicos" in df_api.columns:
-            logger.info("rodei")
             df_api["Técnicos"] = df_api["Técnicos"].apply(
                 lambda x: len(x) if isinstance(x, list) else 0
             )
@@ -461,8 +459,6 @@ else:
 
         if "municipio" in df_api.columns:
             df_api.rename(columns={"municipio": "Cidade_Real"}, inplace=True)
-
-        logger.info(df_api.columns)
 
         return df_api, None
 
