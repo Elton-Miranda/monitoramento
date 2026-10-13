@@ -12,7 +12,11 @@ class Settings(BaseSettings):
     DBURL: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore", frozen=True
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="allow",
+        frozen=True,
+        case_sensitive=True,
     )
 
     @property

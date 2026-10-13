@@ -1,6 +1,7 @@
 # Credenciais de acesso
 .streamlit/secrets.toml
 .env
+.env.dev
 
 # Cache do RUFF
 .ruff_cache/

@@ -27,6 +27,7 @@ from application.use_cases.user import (
     logar_usuario,
     obter_usuario_por_email,
 )
+from core import settings
 from infrastructure.api import load_dminusOne
 from persistence.database import get_session
 from persistence.models import User
@@ -86,9 +87,9 @@ def get_secret(section, key):
         return None
 
 
-API_URL = get_secret("api", "url") or ""
-API_URL_OFENSORES = get_secret("api", "url_ofensores") or ""
-API_URL_DMINUSONE = get_secret("api", "d_minus_one") or ""
+API_URL = settings.API_URL
+API_URL_OFENSORES = settings.OFENSORES
+API_URL_DMINUSONE = settings.D_MENOS_UM
 
 # ==============================================================================
 # 🚪 LÓGICA DE LOGIN
@@ -369,12 +370,14 @@ else:
         if API_URL:
             try:
                 response = requests.get(API_URL, timeout=25)
+                logger.debug(API_URL)
                 if response.status_code == 200:
                     data = response.json()
                     if "ocorrencias" in data:
                         df_api = pd.DataFrame(data["ocorrencias"])
                 else:
                     erro_msg = f"Erro API: {response.status_code}"
+                    logger.error(erro_msg)
             except Exception as e:
                 logger.error(f"Erro ao carregar dados da API: {e!s}")
                 erro_msg = str(e)
@@ -900,12 +903,12 @@ else:
         # --- ABAS DE PERFIS ---
         tab_cl = None
         if PERFIL in ["master", "admin"]:
-            tab_op, tab_prim, tab_map, tab_cl, tab_report = st.tabs(  # tab_of
-                ["Operacional", "Primaria Info", "Map", "Cluster", "Reportar Bug"]
+            tab_op, tab_prim, tab_kpi, tab_map, tab_cl, tab_report = st.tabs(  # tab_of
+                ["Operacional", "Primárias", "View", "Mapa", "Cluster", "Reportar Bug"]
             )
         else:
-            tab_op, tab_prim, tab_map, tab_report = st.tabs(  # tab_of
-                ["Operacional", "Primaria Info", "Map", "Reportar Bug"]
+            tab_op, tab_prim, tab_kpi, tab_map, tab_report = st.tabs(  # tab_of
+                ["Operacional", "Primárias", "View", "Mapa", "Reportar Bug"]
             )
 
         # --- ABA INFO DE PRIMÁRIA
@@ -958,13 +961,23 @@ else:
             # dataframe das informações pesquisadas
             st.title(st.session_state["primary_search"].upper())
 
-            if st.session_state["primary_search"]:
+            f_codigo = st.session_state["primary_search"].strip()
+            f_cabo = st.session_state["txt_cabo"].strip()
+            f_primaria = '#' + st.session_state["txt_primaria"].strip()
+            f_municipio = st.session_state["txt_municipio"].strip()
+            f_contrato = None
+
+            if st.session_state['role'] not in ['admin', 'master']:
+                f_contrato = st.session_state["allowed_contract"]
+
+            if f_codigo or f_cabo or f_primaria or f_municipio:
                 try:
                     df = primary_search(
-                        st.session_state["primary_search"],
-                        st.session_state["txt_cabo"],
-                        st.session_state["txt_primaria"],
-                        st.session_state["txt_municipio"],
+                        f_codigo,
+                        f_cabo,
+                        f_primaria,
+                        f_municipio,
+                        f_contrato
                     )
                     if df.height > 0:
                         st.dataframe(
@@ -992,8 +1005,32 @@ else:
                 except Exception as e:
                     st.error(e)
 
-        # --- ABA MAPS ---
+        with tab_kpi:
+            st.subheader("Em construção")
+            # dados = load_dminusOne("ABILITY_SJ", API_URL_DMINUSONE)
 
+            # if dados:
+            #     pre_data = {
+            #         "Ocorrência": [dados.get("ocorrencias", 0)],
+            #         "Prazo": [dados.get("prazo", 0)],
+            #         "Reincidência": [dados.get("reincidencia", 0)],
+            #     }
+            #     st.dataframe(pre_data, hide_index=True)
+
+            dados_mock = {
+                "STATUS": ["FECHADO D-1", "ESTEIRA -D -0", "PREVISTO"],
+                "FORA PRAZO": [6, 0, 6],
+                "DENTRO": [20, 8, 28],
+                "TOTAL": [26, 8, 34],
+                "%": ["77%", "", "82%"],
+            }
+            # teste 2
+            df = pd.DataFrame(dados_mock)
+
+            st.subheader("📊 Resumo de Prazos - VALORES DE TESTE")
+            st.dataframe(df, hide_index=True, width="stretch")
+
+        # --- ABA MAPS ---
         with tab_map:
             # @st.cache_data
             # def gerar_dados():
@@ -1395,6 +1432,7 @@ else:
                 else:
                     st.warning("Selecione pelo menos um contrato.")
 
+        # --- ABA REPORT ---
         with tab_report:
             st.markdown(
                 "<h3 style='color:#1e293b;'>Reportar Bugs e Sugestões</h3>",
