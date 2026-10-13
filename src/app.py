@@ -87,9 +87,9 @@ def get_secret(section, key):
         return None
 
 
-API_URL = settings.API_URL
-API_URL_OFENSORES = settings.OFENSORES
-API_URL_DMINUSONE = settings.D_MENOS_UM
+API_URL = settings.model_extra.get("API_URL")
+API_URL_OFENSORES = settings.model_extra.get("OFENSORES")
+API_URL_DMINUSONE = settings.model_extra.get("D_MENOS_UM")
 
 # ==============================================================================
 # 🚪 LÓGICA DE LOGIN
