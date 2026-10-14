@@ -15,18 +15,23 @@ def primary_search(
 ) -> pl.DataFrame:
     try:
         with get_session_legacy() as session:
-            stmt = select(
-                OcorrenciaPrimaria.cod_primaria,
-                OcorrenciaPrimaria.id_ocorrencia,
-                Ocorrencias.afetacao,
-                Ocorrencias.data_ocorrencia,
-                Ocorrencias.data_ocorrencia_final,
-                Ocorrencias.municipio,
-                Ocorrencias.logradouro,
-                Ocorrencias.lat_lon,
-            ).join(
-                Ocorrencias,
-                OcorrenciaPrimaria.id_ocorrencia == Ocorrencias.id_ocorrencia,
+            stmt = (
+                select(
+                    OcorrenciaPrimaria.cod_primaria,
+                    OcorrenciaPrimaria.id_ocorrencia,
+                    Ocorrencias.afetacao,
+                    Ocorrencias.data_ocorrencia,
+                    Ocorrencias.data_ocorrencia_final,
+                    Ocorrencias.municipio,
+                    Ocorrencias.logradouro,
+                    Ocorrencias.lat_lon,
+                )
+                .join(
+                    Ocorrencias,
+                    OcorrenciaPrimaria.id_ocorrencia == Ocorrencias.id_ocorrencia,
+                )
+                .limit(300)
+                .order_by(Ocorrencias.id_ocorrencia.desc())
             )
 
             if contrato:

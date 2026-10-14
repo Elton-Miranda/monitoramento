@@ -28,7 +28,7 @@ from application.use_cases.user import (
     obter_usuario_por_email,
 )
 from core import settings
-from infrastructure.api import load_dminusOne
+from infrastructure.http_api import load_dminusOne
 from persistence.database import get_session
 from persistence.models import User
 
@@ -87,9 +87,9 @@ def get_secret(section, key):
         return None
 
 
-API_URL = settings.API_URL
-API_URL_OFENSORES = settings.OFENSORES
-API_URL_DMINUSONE = settings.D_MENOS_UM
+API_URL = settings.API_URL or ""
+API_URL_OFENSORES = settings.OFENSORES or ""
+API_URL_DMINUSONE = settings.D_MENOS_UM or ""
 
 # ==============================================================================
 # 🚪 LÓGICA DE LOGIN
@@ -111,7 +111,6 @@ def logout() -> None:
 
 
 def login(user: User) -> None:
-    """Atualiza o estado de sessão para refletir o login bem-sucedido e recarrega a aplicação."""
     if user.contract == "MASTER":
         default = "ABILITY_SJ"
     else:
@@ -133,10 +132,6 @@ def login(user: User) -> None:
         expires=obter_validade(),
     )
     st.rerun()
-
-
-def atualizar_contrato_callback():
-    st.session_state.contract = st.session_state.contrato_ofensor
 
 
 cookie_session = cookie_controller.get("session_token")
@@ -213,6 +208,19 @@ else:
     PERFIL = st.session_state["role"]
     CONTRATOS = st.session_state["allowed_contract"]
     hora_atual = (datetime.now(UTC) - timedelta(hours=3)).strftime("%H:%M")
+
+    st.session_state.contrato_atual = st.session_state.contract
+
+    def d_menos_um(contrato_busca):
+        dados = load_dminusOne(contrato_busca, API_URL_DMINUSONE)
+        if dados:
+            logger.info(dados)
+            ocorrencias = dados.get("ocorrencias") or -1
+            prazo = dados.get("prazo") or -1
+            reincidencia = dados.get("reincidencia") or -1
+            return ocorrencias, prazo, reincidencia
+        else:
+            return -1, -1, -1
 
     # --- ESTILOS CSS ---
     st.markdown(
@@ -417,7 +425,7 @@ else:
                     if pd.isna(x) or str(x).strip() in ["", "nan", "None"]:
                         return ""
                     return str(int(float(x)))
-                except:
+                except Exception:
                     return ""
 
             df_api["Reincidência"] = df_api["Reincidência"].apply(format_reinc)
@@ -453,7 +461,7 @@ else:
                 return "SIM"
             try:
                 return "SIM" if float(val) > 0 else "NÃO"
-            except:
+            except Exception:
                 return "NÃO"
 
         for col in ["VIP", "Cond. Alto Valor", "B2B"]:
@@ -963,11 +971,11 @@ else:
 
             f_codigo = st.session_state["primary_search"].strip()
             f_cabo = st.session_state["txt_cabo"].strip()
-            f_primaria = '#' + st.session_state["txt_primaria"].strip()
+            f_primaria = st.session_state["txt_primaria"].strip()
             f_municipio = st.session_state["txt_municipio"].strip()
             f_contrato = None
 
-            if st.session_state['role'] not in ['admin', 'master']:
+            if st.session_state["role"] not in ["admin", "master"]:
                 f_contrato = st.session_state["allowed_contract"]
 
             if f_codigo or f_cabo or f_primaria or f_municipio:
@@ -975,9 +983,9 @@ else:
                     df = primary_search(
                         f_codigo,
                         f_cabo,
-                        f_primaria,
+                        "#" + f_primaria,  # TODO: melhoar essa adaptação
                         f_municipio,
-                        f_contrato
+                        f_contrato,
                     )
                     if df.height > 0:
                         st.dataframe(
@@ -1006,25 +1014,25 @@ else:
                     st.error(e)
 
         with tab_kpi:
-            st.subheader("Em construção")
-            # dados = load_dminusOne("ABILITY_SJ", API_URL_DMINUSONE)
+            st.subheader("Em construção - Valores de teste")
 
-            # if dados:
-            #     pre_data = {
-            #         "Ocorrência": [dados.get("ocorrencias", 0)],
-            #         "Prazo": [dados.get("prazo", 0)],
-            #         "Reincidência": [dados.get("reincidencia", 0)],
-            #     }
-            #     st.dataframe(pre_data, hide_index=True)
+            _total = d_menos_um(st.session_state.contrato_atual)[0]
+            _prazo = d_menos_um(st.session_state.contrato_atual)[1]
+            _f_prazo = _total - _prazo
+            _p_prazo = _prazo / _total * 100
 
             dados_mock = {
-                "STATUS": ["FECHADO D-1", "ESTEIRA -D -0", "PREVISTO"],
-                "FORA PRAZO": [6, 0, 6],
-                "DENTRO": [20, 8, 28],
-                "TOTAL": [26, 8, 34],
-                "%": ["77%", "", "82%"],
+                "STATUS": ["FECHADO D-1", "ESTEIRA D-0", "PREVISTO"],
+                "FORA PRAZO": [
+                    _f_prazo,
+                    0,
+                    26,
+                ],  # checkpoint
+                "DENTRO": [_prazo, 8, 28],
+                "TOTAL": [_total, 8, 34],
+                "%": [f"{round(_p_prazo, 2)}%", "", "82%"],
             }
-            # teste 2
+
             df = pd.DataFrame(dados_mock)
 
             st.subheader("📊 Resumo de Prazos - VALORES DE TESTE")
@@ -1032,6 +1040,7 @@ else:
 
         # --- ABA MAPS ---
         with tab_map:
+            st.subheader("Mapa em construção")
             # @st.cache_data
             # def gerar_dados():
             #     base_lat, base_lon = -23.5505, -46.6333  # São Paulo
@@ -1079,9 +1088,9 @@ else:
             with c_sel:
                 if CONTRATOS and PERFIL not in ["master", "admin"]:
                     st.info(f"A visualizar: {CONTRATOS}")
-                    contrato_atual = CONTRATOS
+                    st.session_state.contrato_atual = CONTRATOS
                 else:
-                    contrato_atual = st.radio(
+                    st.session_state.contrato_atual = st.radio(
                         "Selecione o Contrato:",
                         CONTRATOS_VALIDOS,
                         horizontal=True,
@@ -1091,7 +1100,7 @@ else:
                 if st.button("🔄 Atualizar", width="stretch"):
                     st.rerun()
 
-            df_view = processar_dados(df_raw, contrato_atual)
+            df_view = processar_dados(df_raw, st.session_state.contrato_atual)
 
             c_f1, c_f2 = st.columns(2)
             with c_f1:
@@ -1106,12 +1115,10 @@ else:
 
             # KPIs HTML
             t = len(df_view)
-            dados = load_dminusOne(contrato_atual, API_URL_DMINUSONE)
-            ocorrencias, prazo, reincidencia = 0, 0, 0
-            if dados:
-                ocorrencias = dados.get("ocorrencias")
-                prazo = dados.get("prazo")
-                reincidencia = dados.get("reincidencia")
+
+            ocorrencias, prazo, reincidencia = d_menos_um(
+                st.session_state.contrato_atual
+            )
 
             k = {
                 "total": t,
@@ -1137,7 +1144,7 @@ else:
                 <div style="{c_style.replace("#7c3aed", "#d97706")}"><div style="font-size:11px;color:#64748b;">Fora Prazo</div><div style="font-size:18px;font-weight:800;color:#d97706;">{k["fora"]} {badge(k["fora"], t, "#d97706")}</div></div>
                 <div style="{c_style.replace("#7c3aed", "#16a34a")}"><div style="font-size:11px;color:#64748b;">No Prazo</div><div style="font-size:18px;font-weight:800;color:#16a34a;">{k["no_prazo"]} {badge(k["no_prazo"], t, "#16a34a")}</div></div>"""
 
-            if contrato_atual == "ABILITY_SJ":
+            if st.session_state.contrato_atual == "ABILITY_SJ":
                 html += f"""<div style="{c_style}"><div style="font-size:11px;color:#64748b;">Litoral</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k["lit"]} {badge(k["lit"], t, "#7c3aed")}</div></div><div style="{c_style}"><div style="font-size:11px;color:#64748b;">Vale</div><div style="font-size:18px;font-weight:800;color:#0f172a;">{k["vale"]} {badge(k["vale"], t, "#7c3aed")}</div></div>"""
             html += f"""
             <div style="{c_style.replace("#7c3aed", "#b60098")}"><div style="font-size:11px;color:#B60098;">Ocorrências D-1</div><div style="font-size:18px;font-weight:800;color:#B60098;">{ocorrencias}</div></div>
@@ -1154,14 +1161,17 @@ else:
                 )
                 with st.expander("Ver Detalhes GV"):
                     for _, row in df_view[df_view["Afetação"] >= 100].iterrows():
-                        st.code(gerar_texto_gv(row, contrato_atual), language="text")
+                        st.code(
+                            gerar_texto_gv(row, st.session_state.contrato_atual),
+                            language="text",
+                        )
 
             with st.expander("📂 Opções de Exportação"):
                 c1, container_cad_login = st.columns(2)
                 try:
                     c1.download_button(
                         "Baixar Resumo",
-                        gerar_cards_mpl(k, contrato_atual),
+                        gerar_cards_mpl(k, st.session_state.contrato_atual),
                         f"resumo_{nome_arq}.jpg",
                         "image/jpeg",
                         width="stretch",
@@ -1185,7 +1195,7 @@ else:
                 ]
                 try:
                     imgs = gerar_lista_mpl_from_view(
-                        df_view, cols_export, contrato_atual
+                        df_view, cols_export, st.session_state.contrato_atual
                     )
                     if imgs:
                         if len(imgs) == 1:
@@ -1266,7 +1276,7 @@ else:
             df_tela.rename(columns=lambda x: dict_renomear.get(x, x), inplace=True)
 
             def highlight_rows_tela(row):
-                h = row.get("horas_float", 0)  # checkpoint
+                h = row.get("horas_float", 0)
                 is_b2b = str(row.get("B2B", "NÃO")).upper() == "SIM"
                 limite_fora = 4 if is_b2b else 8
 
